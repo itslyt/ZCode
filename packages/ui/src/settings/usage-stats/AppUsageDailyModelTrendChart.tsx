@@ -131,8 +131,8 @@ export function buildAppUsageDailyModelChartViewModel({
   locale: string;
   snapshot: AppUsageSnapshot;
 }) {
-  const topModels = snapshot.models.slice(0, 6);
-  const modelKeys = topModels.map((model, index) => ({
+  const models = snapshot.models;
+  const modelKeys = models.map((model, index) => ({
     modelId: model.modelId,
     key: `model${index}`,
     color: getAppUsageModelChartColor(index),
@@ -164,7 +164,7 @@ export function buildAppUsageDailyModelChartViewModel({
   }
 
   return {
-    topModels,
+    models,
     modelKeys,
     chartConfig,
     chartData,
@@ -187,7 +187,7 @@ function DailyModelChartTooltipContent(props: ChartTooltipContentProps) {
 
 export function AppUsageDailyModelTrendChart({ snapshot }: { snapshot: AppUsageSnapshot }) {
   const { intl, locale } = useZCodeIntl();
-  const { topModels, modelKeys, chartConfig, chartData, maxTokens } = useMemo(
+  const { models, modelKeys, chartConfig, chartData, maxTokens } = useMemo(
     // Recharts 3.8 会把 data / legend / graphical item props 写入内部 store。
     // 这里稳定派生数组和配置对象，避免父组件重渲染时因引用变化反复触发内部 dispatch。
     () => buildAppUsageDailyModelChartViewModel({ intl, locale, snapshot }),
@@ -263,7 +263,7 @@ export function AppUsageDailyModelTrendChart({ snapshot }: { snapshot: AppUsageS
       ) : (
         <div className="px-3 py-3">
           <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2" role="list">
-            {topModels.map((model, index) => (
+            {models.map((model, index) => (
               <div
                 key={model.modelId ?? "__unknown__"}
                 className="flex min-w-0 items-center gap-2 text-ui-sm"

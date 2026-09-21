@@ -3340,7 +3340,6 @@ const enUS: Record<string, string> = {
     "Switch the workspace model connection to an Individual Plan or Team Plan to view its quota and usage here.",
   "settings.usage.modelChartDescription":
     "{model} currently has the highest share at about {share}.",
-  "settings.usage.modelChart.other": "Other models",
   "settings.usage.modelChart.input": "In",
   "settings.usage.modelChart.cachedInput": "Cached",
   "settings.usage.modelChart.uncachedInput": "Uncached",

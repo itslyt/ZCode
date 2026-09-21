@@ -99,7 +99,7 @@ export function CodingPlanUsageLineChart({
     // Recharts 对 series、legend、tooltip props 的引用变化很敏感。
     // 稳定派生数据，避免设置页刷新时图表内部 store 出现重复 replace 更新。
     () =>
-      series.slice(0, 6).map((item, index) => ({
+      series.map((item, index) => ({
         ...item,
         key: `series${index}`,
         color: getLineChartColor(index),

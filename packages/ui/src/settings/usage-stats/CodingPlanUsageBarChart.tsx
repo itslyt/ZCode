@@ -245,7 +245,7 @@ export function CodingPlanUsageBarChart({
   const { intl, locale } = useZCodeIntl();
   const tokenUnit = intl.formatMessage({ id: "settings.usage.tokenUnit" });
   const creditUnit = intl.formatMessage({ id: "settings.usage.creditUnit" });
-  const visibleSeries = useMemo(() => series.slice(0, 6), [series]);
+  const visibleSeries = series;
   const barKeys = useMemo(
     () => buildBarKeys({ intl, series: visibleSeries }),
     [intl, visibleSeries],

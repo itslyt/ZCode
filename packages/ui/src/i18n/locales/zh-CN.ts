@@ -3154,7 +3154,6 @@ const zhCN: Record<string, string> = {
   "settings.usage.codingPlanCurrentConnectionDescription":
     "将当前工作区模型连接方式切换为个人套餐或团队套餐后，即可在这里查看对应额度和用量。",
   "settings.usage.modelChartDescription": "{model} 当前占比最高，约 {share}。",
-  "settings.usage.modelChart.other": "其他模型",
   "settings.usage.modelChart.input": "输入",
   "settings.usage.modelChart.cachedInput": "缓存",
   "settings.usage.modelChart.uncachedInput": "未缓存",
