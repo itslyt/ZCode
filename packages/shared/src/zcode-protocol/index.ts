@@ -1645,6 +1645,8 @@ export const zcodeTaskTokenUsageResultSchema = z
     decodeWindowMs: z.number().nonnegative(),
     rawInputTokens: z.number().int().nonnegative(),
     rawCacheReadTokens: z.number().int().nonnegative(),
+    turnCount: z.number().int().nonnegative(),
+    toolCallCount: z.number().int().nonnegative(),
     modelRequestCount: z.number().int().nonnegative(),
     modelErrorCount: z.number().int().nonnegative(),
     inputBaselineBySource: z.record(z.string(), z.number().int().nonnegative()),

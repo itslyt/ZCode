@@ -11,6 +11,8 @@ export interface SessionStatsView {
   uncachedInputTokens: number;
   cacheReadTokens: number;
   outputTokens: number;
+  turnCount: number;
+  toolCallCount: number;
 }
 
 /** 会话级统计展示模型：全部由 v4/conversation/usage 的 DB 聚合派生，无窗口/条数限制；Token 用量与缓存拆分为提供商原始口径。 */
@@ -30,6 +32,8 @@ export function buildSessionStatsView(usage: V4ConversationUsageResult): Session
     uncachedInputTokens: uncachedInput,
     cacheReadTokens: cacheRead,
     outputTokens: usage.outputTokens,
+    turnCount: usage.turnCount,
+    toolCallCount: usage.toolCallCount,
   };
 }
 

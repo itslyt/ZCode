@@ -4,7 +4,7 @@
 
 ## 产品规则
 
-会话视图底部（composer 之下）展示一条会话级统计，字段对齐 DSH 会话统计：
+composer 卡片内底行居中展示两枚可点击胶囊（DSH 式），详情在浮层中：
 
 - 模型用时：会话内模型请求 `duration_ms` 之和
 - 工具调用用时：`tool_usage.duration_ms` 之和
@@ -28,7 +28,7 @@
 
 - `packages/ui/src/v4/sessionStatsView.ts`：纯派生 + 时长/数量格式化
 - `packages/ui/src/hooks/useSessionStats.ts`：轮询 hook
-- `packages/ui/src/v4/SessionStatsBar.tsx`：展示组件，SessionPane 在 `{composerNode}` 之后按 sessionId 渲染
+- `packages/ui/src/v4/SessionStatsCapsules.tsx`：DSH 式双胶囊（轮步+速度 / Token+缓存命中），点击开 Popover 详情；经 ChatPromptEditor `footerNode` 插槽嵌入 composer 卡片内底行居中
 - 协议：`packages/shared/src/zcode-protocol-v4/transport.ts` 的 `v4ConversationUsageResultSchema`
   增补七个非负数值字段；contracts `TaskUsageQueryResult` 同步；handler 无 usageStore 时回退全 0
 

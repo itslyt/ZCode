@@ -4482,6 +4482,8 @@ const enUS: Record<string, string> = {
   "chat.sessionStats.uncachedInput": "Uncached input",
   "chat.sessionStats.cacheRead": "Cache read",
   "chat.sessionStats.output": "Output",
+  "chat.sessionStats.turns": "{count} turns",
+  "chat.sessionStats.steps": "{count} steps",
   "chat.toolbar.draftConfigWriteFailed": "Failed to update configuration. Please try again.",
   "chat.toolbar.model.description":
     "Choose the model used by this task. The shortcut opens the model menu.",

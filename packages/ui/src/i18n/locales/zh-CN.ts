@@ -4212,6 +4212,8 @@ const zhCN: Record<string, string> = {
   "chat.sessionStats.uncachedInput": "未缓存输入",
   "chat.sessionStats.cacheRead": "缓存读取",
   "chat.sessionStats.output": "输出",
+  "chat.sessionStats.turns": "{count} 轮",
+  "chat.sessionStats.steps": "{count} 步",
   "chat.toolbar.draftConfigWriteFailed": "配置修改失败，请重试",
   "chat.toolbar.model.description": "选择当前任务使用的模型。快捷键只打开模型菜单。",
   "chat.toolbar.model.manageModels": "管理模型",

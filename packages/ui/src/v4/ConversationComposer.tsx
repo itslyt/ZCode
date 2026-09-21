@@ -49,6 +49,7 @@ import type {
   ConversationSnapshot,
   SessionConfigState,
 } from "@zcode/shared/zcode-protocol-v4";
+import { SessionStatsCapsules } from "@/v4/SessionStatsCapsules.js";
 import {
   ArrowUpIcon,
   ClipboardPenLineIcon,
@@ -2020,6 +2021,17 @@ function ConversationComposerImpl({
   // useMemo：composer 随流式 snapshot 高频重渲染，控制簇只在语义依赖变化时重建，
   // 避免每个 token 批次都重建 Tooltip/Select 子树。
   const composerUsage = snapshot?.usage ?? null;
+  const sessionStatsNode = useMemo(
+    () =>
+      sessionId ? (
+        <SessionStatsCapsules
+          workspacePath={workspacePath}
+          workspaceIdentity={workspaceIdentity}
+          sessionId={sessionId}
+        />
+      ) : null,
+    [sessionId, workspaceIdentity, workspacePath],
+  );
   const composerPhase = snapshot?.control.phase ?? null;
   const handleSelectModelTrace = useCallback(
     (nextProvider: string, nextModel: string, sourceModel: ModelSelectionSource | null) =>
@@ -2283,6 +2295,7 @@ function ConversationComposerImpl({
           enableMentionPanel
           leadingActions={leadingActionsNode}
           submitControl={submitControlNode}
+          footerNode={sessionStatsNode}
           className="p-0"
           onChange={handleEditorChange}
           onFocus={handleEditorFocus}

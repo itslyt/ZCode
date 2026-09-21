@@ -683,12 +683,17 @@ export async function queryTaskUsage(
 
   const toolRow = db
     .prepare(
-      `select coalesce(sum(duration_ms), 0) as toolDurationMs
+      `select count(*) as toolCallCount, coalesce(sum(duration_ms), 0) as toolDurationMs
        from tool_usage
-       where session_id = ? and duration_ms is not null`,
+       where session_id = ?`,
     )
-    .get(input.sessionID) as { toolDurationMs: number | null };
+    .get(input.sessionID) as { toolCallCount: number | null; toolDurationMs: number | null };
   const toolDurationMs = Math.max(0, Number(toolRow?.toolDurationMs ?? 0));
+  const toolCallCount = Math.max(0, Number(toolRow?.toolCallCount ?? 0));
+  const turnRow = db
+    .prepare(`select count(*) as turnCount from turn_usage where session_id = ?`)
+    .get(input.sessionID) as { turnCount: number | null };
+  const turnCount = Math.max(0, Number(turnRow?.turnCount ?? 0));
 
   return {
     sessionID: input.sessionID,
@@ -708,6 +713,8 @@ export async function queryTaskUsage(
     decodeWindowMs,
     rawInputTokens,
     rawCacheReadTokens,
+    turnCount,
+    toolCallCount,
   };
 }
 

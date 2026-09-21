@@ -1078,6 +1078,10 @@ export interface TaskUsageQueryResult {
   rawInputTokens: number;
   /** 提供商原始口径：缓存读取 token 之和。 */
   rawCacheReadTokens: number;
+  /** 会话轮数（turn_usage 行数）。 */
+  turnCount: number;
+  /** 工具调用步数（tool_usage 行数）。 */
+  toolCallCount: number;
 }
 
 export interface UsageStorePort {

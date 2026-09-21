@@ -119,7 +119,6 @@ import {
   type ConversationComposerSendOptions,
   type ConversationComposerSendResult,
 } from "@/v4/ConversationComposer.js";
-import { SessionStatsBar } from "@/v4/SessionStatsBar.js";
 import type { ConversationDropTargetController } from "@/v4/composer/conversationDropTarget.js";
 import { shouldIgnoreEscapeForStopGeneration } from "@/v4/composer/escapeStop.js";
 import { ConversationDraftEmptyState } from "@/v4/ConversationDraftEmptyState.js";
@@ -4553,13 +4552,6 @@ export function SessionPane({
         />
       ) : null}
       {composerNode}
-      {sessionId ? (
-        <SessionStatsBar
-          workspacePath={workspacePath}
-          workspaceIdentity={workspaceIdentity}
-          sessionId={sessionId}
-        />
-      ) : null}
       {/* 办公模式显示主动任务推荐；编程模式保留原有小型场景入口。 */}
       {isDraft && (!isOfficeMode || sharedSettings?.proactiveSuggestionsEnabled === true) ? (
         <ConversationDraftSuggestedPromptsContainer

@@ -26,6 +26,8 @@ function usage(overrides: Partial<V4ConversationUsageResult> = {}): V4Conversati
     decodeWindowMs: 10_000,
     rawInputTokens: 100,
     rawCacheReadTokens: 900,
+    turnCount: 3,
+    toolCallCount: 7,
     ...overrides,
   };
 }
@@ -42,6 +44,8 @@ test("派生：缓存命中率按 cacheRead / (cacheRead + 未缓存输入)", ()
   assert.equal(view.cacheHitRate, 0.9);
   assert.equal(view.totalTokens, 1200);
   assert.equal(view.uncachedInputTokens, 100);
+  assert.equal(view.turnCount, 3);
+  assert.equal(view.toolCallCount, 7);
 });
 
 test("派生：无样本/零窗口时对应项为 null，无活动会话 hasActivity=false", () => {
@@ -55,6 +59,8 @@ test("派生：无样本/零窗口时对应项为 null，无活动会话 hasActi
       outputTokens: 0,
       rawInputTokens: 0,
       rawCacheReadTokens: 0,
+      turnCount: 0,
+      toolCallCount: 0,
       inputTokens: 0,
       cacheReadTokens: 0,
     }),

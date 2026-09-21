@@ -2920,6 +2920,8 @@ export async function getTaskTokenUsage(
       decodeWindowMs: 0,
       rawInputTokens: 0,
       rawCacheReadTokens: 0,
+      turnCount: 0,
+      toolCallCount: 0,
     };
   }
 
@@ -2944,6 +2946,8 @@ export async function getTaskTokenUsage(
     decodeWindowMs: usage.decodeWindowMs,
     rawInputTokens: usage.rawInputTokens,
     rawCacheReadTokens: usage.rawCacheReadTokens,
+    turnCount: usage.turnCount,
+    toolCallCount: usage.toolCallCount,
   };
 }
 
