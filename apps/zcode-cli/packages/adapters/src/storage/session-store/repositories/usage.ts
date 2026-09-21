@@ -727,6 +727,7 @@ export async function queryTurnUsage(
     .prepare(
       `select
          turn_id as turnId,
+         user_message_id as userMessageId,
          started_at as startedAt,
          completed_at as completedAt,
          duration_ms as durationMs,
@@ -743,6 +744,7 @@ export async function queryTurnUsage(
     )
     .all(input.sessionID) as Array<{
       turnId: string;
+      userMessageId: string | null;
       startedAt: number;
       completedAt: number | null;
       durationMs: number | null;
@@ -808,6 +810,7 @@ export async function queryTurnUsage(
     const model = modelByTurn.get(row.turnId);
     return {
       turnID: row.turnId,
+      userMessageId: row.userMessageId,
       startedAt: Number(row.startedAt),
       endedAt: row.completedAt === null ? null : Number(row.completedAt),
       durationMs: Math.max(0, Number(row.durationMs ?? 0)),

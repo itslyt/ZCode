@@ -1087,6 +1087,8 @@ export interface TaskUsageQueryResult {
 /** 逐轮用量/时长聚合（turn_usage 为主，model_usage/tool_usage 补时长与模型归属）。 */
 export interface TurnUsageQueryRow {
   turnID: string;
+  /** 轮的用户消息 id：UI 行 turnId 的值域，胶囊按它关联。 */
+  userMessageId: string | null;
   startedAt: number;
   endedAt: number | null;
   durationMs: number;

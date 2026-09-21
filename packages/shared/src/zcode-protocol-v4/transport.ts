@@ -792,6 +792,7 @@ export type V4ConversationTurnUsageParams = z.infer<typeof v4ConversationTurnUsa
 export const v4ConversationTurnUsageRowSchema = z
   .object({
     turnId: z.string().min(1),
+    userMessageId: z.string().nullable(),
     startedAt: z.number(),
     endedAt: z.number().nullable(),
     durationMs: z.number().nonnegative(),

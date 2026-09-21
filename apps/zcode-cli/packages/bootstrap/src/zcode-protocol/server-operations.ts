@@ -2966,6 +2966,7 @@ export async function getConversationTurnUsage(
     sessionId: params.sessionId,
     turns: turns.map((turn) => ({
       turnId: turn.turnID,
+      userMessageId: turn.userMessageId,
       startedAt: turn.startedAt,
       endedAt: turn.endedAt,
       durationMs: turn.durationMs,

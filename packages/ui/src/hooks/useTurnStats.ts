@@ -39,7 +39,7 @@ export function useTurnStats({
           sessionId,
         });
         const map: Record<string, V4ConversationTurnUsageRow> = {};
-        for (const turn of data.turns) map[turn.turnId] = turn;
+        for (const turn of data.turns) map[turn.userMessageId ?? turn.turnId] = turn;
         if (!disposed) setResult({ key: scopeKey, service: zcodeAgentService, data: map });
       } catch {
         // 保留旧值等下一拍重试。
