@@ -48,3 +48,5 @@ composer 卡片内底行居中展示两枚可点击胶囊（DSH 式），详情�
   不改行/消息结构，不做迁移；历史会话因 turn_usage 已有持久化而天然有数据。
 - UI 持有者：`ConversationTimeline` 内单次 `useTurnStats` 轮询（1s），经 `TurnStatsContext` 下发 turnId→聚合行 map；行级胶囊只读 map，不各自轮询。
 - 兼容：host 无 `queryTurnUsage` 时 handler 回退空 turns，胶囊不渲染。
+- 修订：动作行调用点必须传 `turnId`（漏传则胶囊恒不渲染）；用时浮层首两行为「本轮用时 / 速度」（速度 = 输出 token ÷ 解码窗，解码窗 = 模型用时 − 首 token）；
+  两个统计 RPC 固定 `existing-only`：观察路径不得为已回收会话拉起 runtime（避免重置上下文快照等副作用）。

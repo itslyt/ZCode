@@ -1573,6 +1573,7 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
           createdAt={row.createdAt}
           feedback={readAssistantFeedback(row)}
           sessionId={context.sessionId}
+          turnId={row.turnId}
           onFork={onFork}
           onRetry={onRetry}
           onFeedbackChange={onFeedbackChange}

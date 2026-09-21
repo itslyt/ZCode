@@ -113,4 +113,5 @@ test("逐轮派生：总量与缓存命中走 turn_usage 原始口径", () => {
   assert.equal(view.providerModel, "local/QWEN_3_8_MAX");
   assert.equal(view.ttftMs, 700);
   assert.equal(view.durationMs, 4000);
+  assert.equal(view.tokensPerSecond !== null ? Math.round(view.tokensPerSecond) : null, 136);
 });

@@ -3653,7 +3653,8 @@ export function createZCodeAgentService(
     },
 
     async getTaskTokenUsage(params: ZCodeAgentTaskTokenUsageParams) {
-      const client = await getReadOnlyClient(params);
+      // 同上：统计为只读观察路径，保持 existing-only。
+      const client = await getReadOnlyClient(params, "existing-only");
       // session/usage → v4/conversation/usage（同上；task 是 UI 投影概念，
       // v4 名字空间落位 conversation）。
       return client.request(
@@ -3664,7 +3665,9 @@ export function createZCodeAgentService(
     },
 
     async getConversationTurnUsage(params: ZCodeAgentSessionTarget) {
-      const client = await getReadOnlyClient(params);
+      // 观察者查询只读 DB：绝不为此拉起 runtime（start-if-needed 会为已回收会话
+      // 重启运行时并重置上下文快照，属副作用）。
+      const client = await getReadOnlyClient(params, "existing-only");
       return client.request(
         V4_METHODS.conversationTurnUsage,
         { sessionId: params.sessionId },

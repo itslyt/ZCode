@@ -79,6 +79,16 @@ export function TurnStatsCapsules({ turnId }: { turnId: string }) {
         </PopoverTrigger>
         <PopoverContent side="top" className="w-64 gap-2">
           <DetailRow
+            label={intl.formatMessage({ id: "chat.sessionStats.turnDuration" })}
+            value={formatSessionStatsDuration(locale, view.durationMs)}
+          />
+          {view.tokensPerSecond !== null ? (
+            <DetailRow
+              label={intl.formatMessage({ id: "chat.sessionStats.speed" })}
+              value={`${Math.max(1, Math.round(view.tokensPerSecond))} tok/s`}
+            />
+          ) : null}
+          <DetailRow
             label={intl.formatMessage({ id: "chat.sessionStats.modelDuration" })}
             value={formatSessionStatsDuration(locale, view.modelDurationMs)}
           />

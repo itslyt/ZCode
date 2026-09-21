@@ -72,7 +72,12 @@ export interface TurnStatsView {
   modelDurationMs: number;
   toolDurationMs: number;
   ttftMs: number | null;
+  tokensPerSecond: number | null;
   providerModel: string | null;
+}
+
+function decodeWindowMs(turn: V4ConversationTurnUsageRow): number {
+  return Math.max(0, turn.modelDurationMs - (turn.timeToFirstTokenMs ?? 0));
 }
 
 /** 逐轮胶囊展示模型：turn_usage 原始口径直接派生。 */
@@ -88,6 +93,8 @@ export function buildTurnStatsView(turn: V4ConversationTurnUsageRow): TurnStatsV
     modelDurationMs: turn.modelDurationMs,
     toolDurationMs: turn.toolDurationMs,
     ttftMs: turn.timeToFirstTokenMs,
+    tokensPerSecond:
+      decodeWindowMs(turn) > 0 ? (turn.outputTokens * 1000) / decodeWindowMs(turn) : null,
     providerModel: turn.providerId && turn.modelId ? `${turn.providerId}/${turn.modelId}` : null,
   };
 }

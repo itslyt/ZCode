@@ -4217,6 +4217,8 @@ const zhCN: Record<string, string> = {
   "chat.sessionStats.turnUsage": "本轮用量",
   "chat.sessionStats.duration": "用时",
   "chat.sessionStats.providerModel": "提供方 / 模型",
+  "chat.sessionStats.turnDuration": "本轮用时",
+  "chat.sessionStats.speed": "速度",
   "chat.toolbar.draftConfigWriteFailed": "配置修改失败，请重试",
   "chat.toolbar.model.description": "选择当前任务使用的模型。快捷键只打开模型菜单。",
   "chat.toolbar.model.manageModels": "管理模型",
