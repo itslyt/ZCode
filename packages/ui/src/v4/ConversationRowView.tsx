@@ -11,8 +11,6 @@ import {
   GitBranchIcon,
   GoalIcon,
   PencilIcon,
-  ThumbsDownIcon,
-  ThumbsUpIcon,
   TrendingUpDownIcon,
   XIcon,
 } from "lucide-react";
@@ -23,8 +21,6 @@ import {
   TID_V4_EDIT_INPUT,
   TID_V4_EDIT_SUBMIT,
   TID_V4_EDIT_REWIND_WORKSPACE,
-  TID_V4_FEEDBACK_DISLIKE,
-  TID_V4_FEEDBACK_LIKE,
   TID_V4_FORK,
   TID_V4_ROW,
   TID_V4_ROW_ATTACHMENTS,
@@ -81,8 +77,6 @@ import { isAmendWorkflowToolCall } from "@/lib/workflowToolNames.js";
 import { ToolCallBlock } from "@/ToolCallBlocks.js";
 import { resolveWorkflowRunOpenToolCallId } from "@/v4/workflowRunCardJoin.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import { useOptionalPlatform } from "@/hooks/usePlatform.js";
-import { reportAppTelemetryEvent } from "@/lib/appTelemetry.js";
 import { runUserAction, runUserActionAsync } from "@/lib/userActionTelemetry.js";
 import { logger } from "@/logger.js";
 import type { AssistantPreviewCard } from "@/lib/assistantPreviewCards.js";
@@ -209,8 +203,6 @@ type UserInputEditHandler = (
   workspaceMode?: "preserve" | "rewind",
 ) => Promise<CommandAck | boolean | void> | CommandAck | boolean | void;
 
-type AssistantMessageFeedback = "like" | "dislike";
-
 function getAttachmentTypeLabel(filename: string, mimeType: string): string {
   const leaf = filename.split(/[\\/]/u).at(-1) ?? filename;
   const dotIndex = leaf.lastIndexOf(".");
@@ -218,17 +210,6 @@ function getAttachmentTypeLabel(filename: string, mimeType: string): string {
     return leaf.slice(dotIndex + 1).toUpperCase();
   }
   return (mimeType.split("/").at(-1) ?? mimeType).toUpperCase();
-}
-
-export type AssistantFeedbackHandler = (
-  target: ConversationRowTarget,
-  feedback: AssistantMessageFeedback | null,
-) => Promise<boolean | void> | boolean | void;
-
-export function readAssistantFeedback(row: AssistantTextRow): AssistantMessageFeedback | null {
-  // feedback 是 additive V4 row 字段；兼容旧 CLI 的 row 时缺省为 null。
-  const feedback = row.feedback;
-  return feedback === "like" || feedback === "dislike" ? feedback : null;
 }
 
 export interface EditWorkspaceRewindAvailability {
@@ -243,7 +224,6 @@ interface ConversationRowViewProps {
   /** 完成态 assistant 行的 fork 入口（forkAssistant command）。 */
   onFork?: (target: ConversationRowTarget) => void;
   /** assistant entity 反馈 CAS；UI 先乐观更新，命令失败时回滚。 */
-  onFeedbackChange?: AssistantFeedbackHandler;
   /** 协议兼容：上层仍可提供 retryTurn capability，但产品 UI 不渲染普通重试入口。 */
   onRetry?: (target: ConversationRowTarget) => void;
   /** user 行的 edit 入口（editUserQuery command，用行内编辑文本替换该轮）。 */
@@ -1308,87 +1288,29 @@ export const ConversationAssistantTextActions = memo(function ConversationAssist
   entityId,
   text,
   createdAt,
-  feedback = null,
   hookInvocations,
   sessionId,
   turnId,
   onFork,
-  onFeedbackChange,
   className,
 }: {
   rowId: number;
   entityId?: string;
   text: string;
   createdAt: number;
-  feedback?: AssistantMessageFeedback | null;
   hookInvocations?: readonly HookInvocationRow[];
   sessionId?: string | null;
   turnId?: string;
   onFork?: (target: ConversationRowTarget) => void;
   onRetry?: (target: ConversationRowTarget) => void;
-  onFeedbackChange?: AssistantFeedbackHandler;
   className?: string;
 }) {
   const { intl, locale } = useZCodeIntl();
-  const platform = useOptionalPlatform();
-  const [localFeedback, setLocalFeedback] = useState<AssistantMessageFeedback | null>(feedback);
   const copyLabel = intl.formatMessage({ id: "chat.message.copy" });
-  const likeLabel = intl.formatMessage({
-    id: localFeedback === "like" ? "chat.message.liked" : "chat.message.like",
-  });
-  const dislikeLabel = intl.formatMessage({
-    id: localFeedback === "dislike" ? "chat.message.disliked" : "chat.message.dislike",
-  });
   const forkLabel = intl.formatMessage({ id: "chat.message.fork" });
   const timeLabel = formatMessageTimeLabel(createdAt, locale, intl);
   const resolveTooltip = (label: string): string | undefined => label;
 
-  useEffect(() => {
-    setLocalFeedback(feedback);
-  }, [feedback]);
-
-  const handleFeedback = useCallback(
-    (nextFeedback: AssistantMessageFeedback) => {
-      const previousFeedback = localFeedback;
-      const resolvedFeedback = previousFeedback === nextFeedback ? null : nextFeedback;
-      setLocalFeedback(resolvedFeedback);
-      logger.info("[ConversationRowView] 用户反馈 assistant 消息", {
-        messageId: entityId ?? null,
-        reaction: resolvedFeedback ?? "none",
-      });
-      if (entityId) {
-        void Promise.resolve(onFeedbackChange?.({ rowId, entityId }, resolvedFeedback)).then(
-          (result) => {
-            if (result === false) setLocalFeedback(previousFeedback);
-          },
-          (error: unknown) => {
-            setLocalFeedback(previousFeedback);
-            // V4 初版只改 renderer local state，command 失败后会显示并不存在的反馈。
-            // 失败必须回滚到点击前投影值，等待后续权威 row 再校正。
-            logger.warn("[ConversationRowView] 持久化 assistant 反馈失败", {
-              error: error instanceof Error ? error.message : String(error),
-              messageId: entityId,
-            });
-          },
-        );
-      }
-      if (platform && entityId) {
-        void reportAppTelemetryEvent(
-          platform,
-          {
-            elementName: "assistant_message_feedback",
-            eventRegion: "chat",
-            eventType: "ck",
-            eventExtraDetail: { reaction: resolvedFeedback ?? "none" },
-            ...(sessionId ? { talkId: sessionId } : {}),
-            messageId: entityId,
-          },
-          "ConversationRowView",
-        );
-      }
-    },
-    [entityId, localFeedback, onFeedbackChange, platform, rowId, sessionId],
-  );
   const handleFork = useCallback(() => {
     if (entityId) {
       runUserAction({
@@ -1407,46 +1329,6 @@ export const ConversationAssistantTextActions = memo(function ConversationAssist
         label={copyLabel}
         tooltip={resolveTooltip(copyLabel)}
       />
-      {entityId && onFeedbackChange ? (
-        <>
-          <MessageAction
-            aria-label={likeLabel}
-            aria-pressed={localFeedback === "like"}
-            label={likeLabel}
-            tooltip={resolveTooltip(likeLabel)}
-            data-testid={testId(TID_V4_FEEDBACK_LIKE, String(rowId))}
-            className={localFeedback === "like" ? "!bg-success/10" : undefined}
-            onClick={() => handleFeedback("like")}
-          >
-            <span
-              className={cn(
-                "relative inline-flex",
-                localFeedback === "like" && "zcode-reaction-burst",
-              )}
-            >
-              <ThumbsUpIcon className="size-3.5" />
-            </span>
-          </MessageAction>
-          <MessageAction
-            aria-label={dislikeLabel}
-            aria-pressed={localFeedback === "dislike"}
-            label={dislikeLabel}
-            tooltip={resolveTooltip(dislikeLabel)}
-            data-testid={testId(TID_V4_FEEDBACK_DISLIKE, String(rowId))}
-            className={localFeedback === "dislike" ? "!bg-warning/10" : undefined}
-            onClick={() => handleFeedback("dislike")}
-          >
-            <span
-              className={cn(
-                "relative inline-flex",
-                localFeedback === "dislike" && "zcode-reaction-burst",
-              )}
-            >
-              <ThumbsDownIcon className="size-3.5" />
-            </span>
-          </MessageAction>
-        </>
-      ) : null}
       {onFork && entityId ? (
         <MessageAction
           aria-label={forkLabel}
@@ -1476,7 +1358,6 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
   context,
   onFork,
   onRetry,
-  onFeedbackChange,
   hideActions,
   deferActions,
   copyText,
@@ -1489,7 +1370,6 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
   context: ConversationRowRenderContext;
   onFork?: (target: ConversationRowTarget) => void;
   onRetry?: (target: ConversationRowTarget) => void;
-  onFeedbackChange?: AssistantFeedbackHandler;
   hideActions?: boolean;
   deferActions?: boolean;
   copyText?: string;
@@ -1571,12 +1451,10 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
           entityId={row.entityId}
           text={copyText ?? row.text}
           createdAt={row.createdAt}
-          feedback={readAssistantFeedback(row)}
           sessionId={context.sessionId}
           turnId={row.turnId}
           onFork={onFork}
           onRetry={onRetry}
-          onFeedbackChange={onFeedbackChange}
           className={cn(
             "mt-1",
             "opacity-0 transition-opacity group-hover/assistant-row:opacity-100 focus-within:opacity-100",
@@ -2055,7 +1933,6 @@ function ConversationRowViewImpl({
   context,
   onFork,
   onRetry,
-  onFeedbackChange,
   onEdit,
   editWorkspaceRewindAvailability,
   hideAssistantActions,
@@ -2086,7 +1963,6 @@ function ConversationRowViewImpl({
           context={context}
           onFork={onFork}
           onRetry={onRetry}
-          onFeedbackChange={onFeedbackChange}
           hideActions={hideAssistantActions}
           deferActions={deferAssistantActions}
           copyText={assistantCopyText}

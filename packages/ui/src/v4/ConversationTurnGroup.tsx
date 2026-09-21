@@ -68,11 +68,7 @@ import { ConversationWorkflowCompletion } from "@/v4/ConversationWorkflowComplet
 import { resolveWorkflowTurnDigests } from "@/v4/workflowTurnDigests.js";
 import { resolveWorkflowTurnCompletion } from "@/v4/workflowTurnCompletion.js";
 import { ConversationAssistantTextActions } from "@/v4/ConversationRowView.js";
-import { readAssistantFeedback } from "@/v4/ConversationRowView.js";
-import type {
-  AssistantFeedbackHandler,
-  EditWorkspaceRewindAvailability,
-} from "@/v4/ConversationRowView.js";
+import type { EditWorkspaceRewindAvailability } from "@/v4/ConversationRowView.js";
 import {
   isConversationReasoningRowVisible,
   type ConversationRowRenderContext,
@@ -95,7 +91,6 @@ interface ConversationTurnGroupProps {
   context: ConversationRowRenderContext;
   onFork?: (target: ConversationRowTarget) => void;
   onRetry?: (target: ConversationRowTarget) => void;
-  onFeedbackChange?: AssistantFeedbackHandler;
   onEdit?: (
     target: ConversationRowTarget,
     newText: string,
@@ -1104,7 +1099,6 @@ function ConversationTurnGroupImpl({
   context,
   onFork,
   onRetry,
-  onFeedbackChange,
   onEdit,
   shareSelection,
 }: ConversationTurnGroupProps) {
@@ -1419,11 +1413,9 @@ function ConversationTurnGroupImpl({
               entityId={latestAssistantTextRow.entityId}
               text={assistantCopyText}
               createdAt={latestAssistantTextRow.createdAt}
-              feedback={readAssistantFeedback(latestAssistantTextRow)}
               sessionId={context.sessionId}
               onFork={canForkLatestAssistant ? onFork : undefined}
               onRetry={canRetryLatestAssistant ? onRetry : undefined}
-              onFeedbackChange={onFeedbackChange}
               hookInvocations={unit.hookInvocations}
               turnId={unit.turnId}
               className="opacity-0 transition-opacity group-hover/assistant-turn:opacity-100 focus-within:opacity-100"
