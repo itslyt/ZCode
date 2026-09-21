@@ -100,6 +100,7 @@ import type {
   V4SessionsIndexSubscribeResult,
   V4WorkspaceConfigSubscribeResult,
   WorkspaceConfigTopicWireCandidate,
+  V4ConversationTurnUsageResult,
 } from "@zcode/shared/zcode-protocol-v4";
 import { createServiceDescriptor } from "../descriptors.js";
 
@@ -588,6 +589,7 @@ export interface IZCodeAgentService {
   ): Promise<ZCodeSessionSubagentsResult>;
   getAppUsageStats(params: ZCodeAgentAppUsageParams): Promise<AppUsageSnapshot>;
   getTaskTokenUsage(params: ZCodeAgentTaskTokenUsageParams): Promise<ZCodeTaskTokenUsageResult>;
+  getConversationTurnUsage(params: ZCodeAgentSessionTarget): Promise<V4ConversationTurnUsageResult>;
   readSession(params: ZCodeAgentReadSessionParams): Promise<ZCodeSessionStateSnapshot>;
   readSessionMessages(
     params: ZCodeAgentReadSessionMessagesParams,

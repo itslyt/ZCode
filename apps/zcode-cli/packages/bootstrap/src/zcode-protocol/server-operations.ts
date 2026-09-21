@@ -40,6 +40,7 @@ import {
   type UsageStorePort,
   type WorkspaceId,
 } from "@zcode/contracts";
+import { v4ConversationTurnUsageParamsSchema } from "@zcode/shared/zcode-protocol-v4";
 import {
   DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
   ZCODE_SESSION_RUNTIME_PREFERENCES_REQUEST_TIMEOUT_MS,
@@ -2948,6 +2949,39 @@ export async function getTaskTokenUsage(
     rawCacheReadTokens: usage.rawCacheReadTokens,
     turnCount: usage.turnCount,
     toolCallCount: usage.toolCallCount,
+  };
+}
+
+export async function getConversationTurnUsage(
+  context: ZCodeProtocolAgentServerContext,
+  rawParams: unknown,
+) {
+  const params = parseParams(v4ConversationTurnUsageParamsSchema, rawParams ?? {});
+  const usageStore = context.deps.sessionStore as Partial<UsageStorePort> | undefined;
+  if (!usageStore?.queryTurnUsage) {
+    return { sessionId: params.sessionId, turns: [] };
+  }
+  const turns = await usageStore.queryTurnUsage({ sessionID: params.sessionId as SessionId });
+  return {
+    sessionId: params.sessionId,
+    turns: turns.map((turn) => ({
+      turnId: turn.turnID,
+      startedAt: turn.startedAt,
+      endedAt: turn.endedAt,
+      durationMs: turn.durationMs,
+      timeToFirstTokenMs: turn.timeToFirstTokenMs,
+      modelDurationMs: turn.modelDurationMs,
+      toolDurationMs: turn.toolDurationMs,
+      inputTokens: turn.inputTokens,
+      outputTokens: turn.outputTokens,
+      cacheCreationTokens: turn.cacheCreationTokens,
+      cacheReadTokens: turn.cacheReadTokens,
+      totalTokens: turn.totalTokens,
+      modelRequestCount: turn.modelRequestCount,
+      toolCallCount: turn.toolCallCount,
+      providerId: turn.providerId,
+      modelId: turn.modelId,
+    })),
   };
 }
 

@@ -52,6 +52,7 @@ import type {
   TaskUsageQueryResult,
   TodoItem,
   ToolUsageRecord,
+  TurnUsageQueryRow,
   TurnUsageRecord,
   UpsertScriptWorkflowDefinitionInput,
   UpdateScriptWorkflowActivityInput,
@@ -857,6 +858,10 @@ export class SqliteSessionStore
 
   async queryTaskUsage(input: TaskUsageQueryInput): Promise<TaskUsageQueryResult> {
     return usageRepository.queryTaskUsage(this.db, input);
+  }
+
+  async queryTurnUsage(input: { sessionID: SessionId }): Promise<TurnUsageQueryRow[]> {
+    return usageRepository.queryTurnUsage(this.db, input);
   }
 
   async recordInputHistory(input: {

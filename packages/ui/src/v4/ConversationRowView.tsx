@@ -75,6 +75,7 @@ import { cn } from "@/components/lib/utils.js";
 import { Button } from "@/components/ui/button.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { WorkflowToolSummary } from "@/v4/WorkflowToolSummary.js";
+import { TurnStatsCapsules } from "@/v4/TurnStatsCapsules.js";
 import { readWorkflowName } from "@/ToolCallBlocks/renderers/createWorkflowInput.js";
 import { isAmendWorkflowToolCall } from "@/lib/workflowToolNames.js";
 import { ToolCallBlock } from "@/ToolCallBlocks.js";
@@ -1462,6 +1463,7 @@ export const ConversationAssistantTextActions = memo(function ConversationAssist
       ) : null}
       {/* 旧 conversation surface 删除后，V4 动作栏漏掉了消息创建时间；
           时间是 row.createdAt 的只读派生展示，不新增 renderer 状态。 */}
+      {turnId ? <TurnStatsCapsules turnId={turnId} /> : null}
       {timeLabel ? (
         <span className="select-none text-ui-sm text-foreground-subtlest">{timeLabel}</span>
       ) : null}

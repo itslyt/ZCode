@@ -271,6 +271,7 @@ import {
   v4ConversationResyncResultSchema,
   v4ConversationSubscribeResultSchema,
   v4ConversationUsageResultSchema,
+  v4ConversationTurnUsageResultSchema,
   v4SessionsIndexSubscribeResultSchema,
   v4UsageStatsResultSchema,
   v4WorkspaceConfigSubscribeResultSchema,
@@ -3659,6 +3660,15 @@ export function createZCodeAgentService(
         V4_METHODS.conversationUsage,
         { sessionId: params.sessionId },
         v4ConversationUsageResultSchema,
+      );
+    },
+
+    async getConversationTurnUsage(params: ZCodeAgentSessionTarget) {
+      const client = await getReadOnlyClient(params);
+      return client.request(
+        V4_METHODS.conversationTurnUsage,
+        { sessionId: params.sessionId },
+        v4ConversationTurnUsageResultSchema,
       );
     },
 

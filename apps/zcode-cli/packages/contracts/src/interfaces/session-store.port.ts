@@ -1084,13 +1084,34 @@ export interface TaskUsageQueryResult {
   toolCallCount: number;
 }
 
+/** 逐轮用量/时长聚合（turn_usage 为主，model_usage/tool_usage 补时长与模型归属）。 */
+export interface TurnUsageQueryRow {
+  turnID: string;
+  startedAt: number;
+  endedAt: number | null;
+  durationMs: number;
+  timeToFirstTokenMs: number | null;
+  modelDurationMs: number;
+  toolDurationMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  totalTokens: number;
+  modelRequestCount: number;
+  toolCallCount: number;
+  providerId: string | null;
+  modelId: string | null;
+}
+
 export interface UsageStorePort {
+  queryTaskUsage(input: TaskUsageQueryInput): Promise<TaskUsageQueryResult>;
+  queryTurnUsage(input: { sessionID: SessionId }): Promise<TurnUsageQueryRow[]>;
   recordModelUsage(input: ModelUsageRecord): Promise<void>;
   upsertTurnUsage(input: TurnUsageRecord): Promise<void>;
   upsertToolUsage(input: ToolUsageRecord): Promise<void>;
   pruneUsage(input?: { beforeTime?: number }): Promise<void>;
   queryAppUsage(input: AppUsageQueryInput): Promise<AppUsageQueryResult>;
-  queryTaskUsage(input: TaskUsageQueryInput): Promise<TaskUsageQueryResult>;
 }
 
 export interface LocalSettingStorePort {

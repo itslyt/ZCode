@@ -31,6 +31,7 @@ import {
   forkSession,
   generateWorkspaceText,
   goalSession,
+  getConversationTurnUsage,
   getTaskTokenUsage,
   getUsageStats,
   listSessions,
@@ -562,6 +563,8 @@ export class ZCodeProtocolAgentServer {
         return await getUsageStats(this.context, request.params);
       case V4_METHODS.conversationUsage:
         return await getTaskTokenUsage(this.context, request.params);
+      case V4_METHODS.conversationTurnUsage:
+        return await getConversationTurnUsage(this.context, request.params);
       case V4_METHODS.command:
         return this.requireV4Gateway().handleCommand(request.params);
       case V4_METHODS.commandsQuery:

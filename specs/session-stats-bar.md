@@ -39,3 +39,12 @@ composer 卡片内底行居中展示两枚可点击胶囊（DSH 式），详情�
 3. 切到另一会话：展示该会话统计；切到无活动会话：不渲染。
 4. 查询失败：保留上一次成功值。
 5. 单测：`packages/ui/test/sessionStatsView.test.ts` 覆盖派生计算与时长格式化（zh/en）。
+
+## 逐轮胶囊（DSH 式每轮用量/用时）
+
+- 每轮 assistant 动作行（复制/点赞/时间戳行）追加两枚胶囊：`本轮用量 X tok` 与 `用时 X`，点击开浮层：
+  用量浮层 = 本轮用量 / 提供方·模型 / 缓存命中 / 未缓存输入 / 缓存读取 / 输出；用时浮层 = 模型用时 / 工具调用用时 / 首 token。
+- 数据：新 RPC `v4/conversation/turnUsage`（`queryTurnUsage`：turn_usage 主表 + model_usage/tool_usage 按 turn 补时长与模型归属）；
+  不改行/消息结构，不做迁移；历史会话因 turn_usage 已有持久化而天然有数据。
+- UI 持有者：`ConversationTimeline` 内单次 `useTurnStats` 轮询（1s），经 `TurnStatsContext` 下发 turnId→聚合行 map；行级胶囊只读 map，不各自轮询。
+- 兼容：host 无 `queryTurnUsage` 时 handler 回退空 turns，胶囊不渲染。

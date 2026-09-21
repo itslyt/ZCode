@@ -3,6 +3,7 @@ import test from "node:test";
 import type { V4ConversationUsageResult } from "@zcode/shared/zcode-protocol-v4";
 import {
   buildSessionStatsView,
+  buildTurnStatsView,
   formatSessionStatsDuration,
   formatSessionStatsTokenCount,
 } from "../src/v4/sessionStatsView.js";
@@ -86,4 +87,30 @@ test("时长格式化：en 单位", () => {
 
 test("token 数量走本地化千分位", () => {
   assert.equal(formatSessionStatsTokenCount("en-US", 12_207_726), "12,207,726");
+});
+
+test("逐轮派生：总量与缓存命中走 turn_usage 原始口径", () => {
+  const view = buildTurnStatsView({
+    turnId: "t1",
+    startedAt: 1000,
+    endedAt: 5000,
+    durationMs: 4000,
+    timeToFirstTokenMs: 700,
+    modelDurationMs: 3000,
+    toolDurationMs: 900,
+    inputTokens: 1280,
+    outputTokens: 312,
+    cacheCreationTokens: 0,
+    cacheReadTokens: 590_848,
+    totalTokens: 592_440,
+    modelRequestCount: 2,
+    toolCallCount: 4,
+    providerId: "local",
+    modelId: "QWEN_3_8_MAX",
+  });
+  assert.equal(view.totalTokens, 592_440);
+  assert.ok(view.cacheHitRate !== null && view.cacheHitRate > 0.99);
+  assert.equal(view.providerModel, "local/QWEN_3_8_MAX");
+  assert.equal(view.ttftMs, 700);
+  assert.equal(view.durationMs, 4000);
 });

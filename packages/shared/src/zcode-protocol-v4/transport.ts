@@ -340,6 +340,7 @@ export const V4_METHODS = {
   // 故收敛为 v4 query 而非 host 直连；旧词 usage/stats、session/usage 就此消费清零。
   usageStats: "v4/usage/stats",
   conversationUsage: "v4/conversation/usage",
+  conversationTurnUsage: "v4/conversation/turnUsage",
   // 附件事务：禁止 full-data RPC。每个 chunk 的 decoded bytes <=512KiB，
   // renderer->host Channel 与 host->CLI NDJSON 都必须逐 request 证明 <=1MiB。
   attachmentBegin: "v4/attachment/begin",
@@ -782,6 +783,40 @@ export const v4ConversationUsageResultSchema = z
   .strict();
 export type V4ConversationUsageResult = z.infer<typeof v4ConversationUsageResultSchema>;
 
+export const v4ConversationTurnUsageParamsSchema = z
+  .object({
+    sessionId: z.string().min(1),
+  })
+  .strict();
+export type V4ConversationTurnUsageParams = z.infer<typeof v4ConversationTurnUsageParamsSchema>;
+export const v4ConversationTurnUsageRowSchema = z
+  .object({
+    turnId: z.string().min(1),
+    startedAt: z.number(),
+    endedAt: z.number().nullable(),
+    durationMs: z.number().nonnegative(),
+    timeToFirstTokenMs: z.number().nonnegative().nullable(),
+    modelDurationMs: z.number().nonnegative(),
+    toolDurationMs: z.number().nonnegative(),
+    inputTokens: z.number().int().nonnegative(),
+    outputTokens: z.number().int().nonnegative(),
+    cacheCreationTokens: z.number().int().nonnegative(),
+    cacheReadTokens: z.number().int().nonnegative(),
+    totalTokens: z.number().int().nonnegative(),
+    modelRequestCount: z.number().int().nonnegative(),
+    toolCallCount: z.number().int().nonnegative(),
+    providerId: z.string().nullable(),
+    modelId: z.string().nullable(),
+  })
+  .strict();
+export type V4ConversationTurnUsageRow = z.infer<typeof v4ConversationTurnUsageRowSchema>;
+export const v4ConversationTurnUsageResultSchema = z
+  .object({
+    sessionId: z.string().min(1),
+    turns: z.array(v4ConversationTurnUsageRowSchema),
+  })
+  .strict();
+export type V4ConversationTurnUsageResult = z.infer<typeof v4ConversationTurnUsageResultSchema>;
 // ── 附件上行事务 ──
 // UI 高层仍用 put(input)->ref；这份 full-data schema 只描述 renderer 内部调用，绝不作为
 // production RPC method。wire 只能用 begin/chunk/commit/abort。

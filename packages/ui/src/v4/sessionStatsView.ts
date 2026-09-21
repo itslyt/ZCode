@@ -1,4 +1,7 @@
-import type { V4ConversationUsageResult } from "@zcode/shared/zcode-protocol-v4";
+import type {
+  V4ConversationUsageResult,
+  V4ConversationTurnUsageRow,
+} from "@zcode/shared/zcode-protocol-v4";
 
 export interface SessionStatsView {
   hasActivity: boolean;
@@ -57,4 +60,34 @@ export function formatSessionStatsTokenCount(locale: string, value: number): str
 
 function trimTrailingZero(text: string): string {
   return text.endsWith(".0") ? text.slice(0, -2) : text;
+}
+
+export interface TurnStatsView {
+  totalTokens: number;
+  cacheHitRate: number | null;
+  uncachedInputTokens: number;
+  cacheReadTokens: number;
+  outputTokens: number;
+  durationMs: number;
+  modelDurationMs: number;
+  toolDurationMs: number;
+  ttftMs: number | null;
+  providerModel: string | null;
+}
+
+/** 逐轮胶囊展示模型：turn_usage 原始口径直接派生。 */
+export function buildTurnStatsView(turn: V4ConversationTurnUsageRow): TurnStatsView {
+  const inputSide = turn.inputTokens + turn.cacheReadTokens;
+  return {
+    totalTokens: turn.totalTokens,
+    cacheHitRate: inputSide > 0 ? turn.cacheReadTokens / inputSide : null,
+    uncachedInputTokens: turn.inputTokens,
+    cacheReadTokens: turn.cacheReadTokens,
+    outputTokens: turn.outputTokens,
+    durationMs: turn.durationMs,
+    modelDurationMs: turn.modelDurationMs,
+    toolDurationMs: turn.toolDurationMs,
+    ttftMs: turn.timeToFirstTokenMs,
+    providerModel: turn.providerId && turn.modelId ? `${turn.providerId}/${turn.modelId}` : null,
+  };
 }

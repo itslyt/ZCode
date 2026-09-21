@@ -11,6 +11,7 @@ import type {
   ModelUsageRecord,
   ToolUsageRecord,
   TurnUsageRecord,
+  TurnUsageQueryRow,
 } from "@zcode/contracts";
 import { encodeJson } from "../json.js";
 
@@ -716,6 +717,115 @@ export async function queryTaskUsage(
     turnCount,
     toolCallCount,
   };
+}
+
+export async function queryTurnUsage(
+  db: DatabaseSync,
+  input: { sessionID: string },
+): Promise<TurnUsageQueryRow[]> {
+  const turnRows = db
+    .prepare(
+      `select
+         turn_id as turnId,
+         started_at as startedAt,
+         completed_at as completedAt,
+         duration_ms as durationMs,
+         time_to_first_token_ms as timeToFirstTokenMs,
+         model_request_count as modelRequestCount,
+         tool_call_count as toolCallCount,
+         input_tokens as inputTokens,
+         output_tokens as outputTokens,
+         cache_creation_input_tokens as cacheCreationTokens,
+         cache_read_input_tokens as cacheReadTokens
+       from turn_usage
+       where session_id = ?
+       order by started_at asc`,
+    )
+    .all(input.sessionID) as Array<{
+      turnId: string;
+      startedAt: number;
+      completedAt: number | null;
+      durationMs: number | null;
+      timeToFirstTokenMs: number | null;
+      modelRequestCount: number | null;
+      toolCallCount: number | null;
+      inputTokens: number | null;
+      outputTokens: number | null;
+      cacheCreationTokens: number | null;
+      cacheReadTokens: number | null;
+    }>;
+
+  const modelDurationByTurn = new Map<string, number>();
+  const modelRows = db
+    .prepare(
+      `select turn_id as turnId, duration_ms as durationMs
+       from model_usage
+       where session_id = ? and turn_id is not null`,
+    )
+    .all(input.sessionID) as Array<{ turnId: string; durationMs: number | null }>;
+  for (const row of modelRows) {
+    const previous = modelDurationByTurn.get(row.turnId) ?? 0;
+    modelDurationByTurn.set(row.turnId, previous + Math.max(0, Number(row.durationMs ?? 0)));
+  }
+
+  const toolDurationByTurn = new Map<string, number>();
+  const toolRows = db
+    .prepare(
+      `select turn_id as turnId, duration_ms as durationMs
+       from tool_usage
+       where session_id = ? and turn_id is not null`,
+    )
+    .all(input.sessionID) as Array<{ turnId: string; durationMs: number | null }>;
+  for (const row of toolRows) {
+    const previous = toolDurationByTurn.get(row.turnId) ?? 0;
+    toolDurationByTurn.set(row.turnId, previous + Math.max(0, Number(row.durationMs ?? 0)));
+  }
+
+  const modelByTurn = new Map<string, { providerId: string | null; modelId: string | null }>();
+  const orderedModelRows = db
+    .prepare(
+      `select turn_id as turnId, provider_id as providerId, model_id as modelId
+       from model_usage
+       where session_id = ? and turn_id is not null
+       order by started_at asc, id asc`,
+    )
+    .all(input.sessionID) as Array<{
+      turnId: string;
+      providerId: string | null;
+      modelId: string | null;
+    }>;
+  for (const row of orderedModelRows) {
+    if (!modelByTurn.has(row.turnId)) {
+      modelByTurn.set(row.turnId, { providerId: row.providerId, modelId: row.modelId });
+    }
+  }
+
+  return turnRows.map((row) => {
+    const inputTokens = Math.max(0, Number(row.inputTokens ?? 0));
+    const cacheReadTokens = Math.max(0, Number(row.cacheReadTokens ?? 0));
+    const cacheCreationTokens = Math.max(0, Number(row.cacheCreationTokens ?? 0));
+    const outputTokens = Math.max(0, Number(row.outputTokens ?? 0));
+    const model = modelByTurn.get(row.turnId);
+    return {
+      turnID: row.turnId,
+      startedAt: Number(row.startedAt),
+      endedAt: row.completedAt === null ? null : Number(row.completedAt),
+      durationMs: Math.max(0, Number(row.durationMs ?? 0)),
+      timeToFirstTokenMs:
+        row.timeToFirstTokenMs === null ? null : Math.max(0, Number(row.timeToFirstTokenMs)),
+      modelDurationMs: modelDurationByTurn.get(row.turnId) ?? 0,
+      toolDurationMs: toolDurationByTurn.get(row.turnId) ?? 0,
+      inputTokens,
+      outputTokens,
+      cacheCreationTokens,
+      cacheReadTokens,
+      totalTokens: inputTokens + cacheReadTokens + outputTokens,
+      modelRequestCount: Math.max(0, Number(row.modelRequestCount ?? 0)),
+      toolCallCount: Math.max(0, Number(row.toolCallCount ?? 0)),
+      providerId: model?.providerId ?? null,
+      modelId: model?.modelId ?? null,
+    };
+  });
 }
 
 function inputSideTokensFromNormalizedUsage(

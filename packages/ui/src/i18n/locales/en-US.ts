@@ -4484,6 +4484,9 @@ const enUS: Record<string, string> = {
   "chat.sessionStats.output": "Output",
   "chat.sessionStats.turns": "{count} turns",
   "chat.sessionStats.steps": "{count} steps",
+  "chat.sessionStats.turnUsage": "Turn usage",
+  "chat.sessionStats.duration": "Duration",
+  "chat.sessionStats.providerModel": "Provider / model",
   "chat.toolbar.draftConfigWriteFailed": "Failed to update configuration. Please try again.",
   "chat.toolbar.model.description":
     "Choose the model used by this task. The shortcut opens the model menu.",
