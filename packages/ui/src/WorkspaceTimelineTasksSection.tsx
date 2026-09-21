@@ -7,6 +7,7 @@ import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu.js
 import { useGlobalTaskList } from "@/hooks/useGlobalTaskList.js";
 import { useLocalWorkspaceScopes } from "@/hooks/useLocalWorkspaceScopes.js";
 import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
+import { useTaskPermanentDelete } from "@/hooks/useTaskPermanentDelete.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { getTaskTimelineGroupMessage, groupTaskTimelineItems } from "@/lib/taskTimelineGroups.js";
 import { buildTaskWorkspaceKey } from "@/lib/taskQueryCache.js";
@@ -65,6 +66,7 @@ export function WorkspaceTimelineTasksSection({
   ) => void;
 }) {
   const { intl, locale } = useZCodeIntl();
+  const deleteTaskPermanently = useTaskPermanentDelete();
   const baseServices = useBaseWorkspaceServices();
   const scopedWorkspaceTabs = useLocalWorkspaceScopes({
     workspaceTabs,
@@ -734,6 +736,12 @@ export function WorkspaceTimelineTasksSection({
             task={contextMenuItem}
             isPinned={false}
             intl={intl}
+            onDeleteTask={() => {
+              void deleteTaskPermanently(
+                contextMenuItem,
+                contextMenuWorkspaceServices.services.zcodeTaskService,
+              );
+            }}
             onTogglePinTask={(_taskId, pinned) => {
               // timeline 现在本地和远端分属两套缓存，pin 时需要同时维护成员关系。
               // 否则远端任务会进入 pinned 后仍残留在 timeline 缓存里。

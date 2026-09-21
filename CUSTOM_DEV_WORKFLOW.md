@@ -91,6 +91,7 @@ ZCODE_ENV=production ZCODE_PREVIEW_IDENTITY=1 pnpm bundle:desktop   # 后台跑�
 - 值域错配是跨表/跨层关联的头号隐性 bug：关联前先以 DB 直查确认两侧 id 值域一致（历史教训：行 turnId 与 turn_usage.turn_id 不同值域，见 `specs/session-stats-bar.md`）。
 - 后台任务用 job 管理；`| tail` 会吞流式输出，排查启动问题时改写日志文件再 grep。
 - 清理进程前先用 `ps eww`/`lsof` 确认归属，避免误杀用户实例。
+- Web 验证环境分裂风险：`ZCODE_DATA_BASE_DIR` 只约束 server 进程（索引/任务库），其拉起的 host 可能仍写**原始**数据目录（会话库/索引另一半），删除等写路径验证后必须直查原始 `~/.zcode/v2/tasks-index.sqlite` 与 `~/.zcode/cli/db/db.sqlite` 取证，发现幽灵条目（索引有行、库无数据）用 tombstone（deleted=1）清理；写路径验证优先桌面 dev 或确认 host 环境继承后再做。
 
 ## 8. 外部能力清单
 

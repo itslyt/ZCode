@@ -7,6 +7,7 @@ import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu.js
 import { useGlobalTaskList } from "@/hooks/useGlobalTaskList.js";
 import { useLocalWorkspaceScopes } from "@/hooks/useLocalWorkspaceScopes.js";
 import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
+import { useTaskPermanentDelete } from "@/hooks/useTaskPermanentDelete.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { buildTaskWorkspaceKey } from "@/lib/taskQueryCache.js";
 import { compareZCodeTaskListItems } from "@/lib/taskListOrdering.js";
@@ -71,6 +72,7 @@ export function WorkspacePinnedTasksSection({
   }) => void;
 }) {
   const { intl } = useZCodeIntl();
+  const deleteTaskPermanently = useTaskPermanentDelete();
   const baseServices = useBaseWorkspaceServices();
   const scopedWorkspaceTabs = useLocalWorkspaceScopes({
     workspaceTabs,
@@ -587,6 +589,9 @@ export function WorkspacePinnedTasksSection({
             task={contextMenuItem}
             isPinned
             intl={intl}
+            onDeleteTask={() => {
+              void deleteTaskPermanently(contextMenuItem, contextMenuServices.zcodeTaskService);
+            }}
             onTogglePinTask={(_taskId, pinned) => {
               if (contextMenuItem.workspaceIdentity) {
                 useRemotePinnedTaskStore

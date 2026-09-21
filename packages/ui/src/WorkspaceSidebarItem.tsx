@@ -209,11 +209,7 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
   const confirmDialog = useConfirmDialog();
   const baseServices = useBaseWorkspaceServices();
   const zcodeTaskService = services.zcodeTaskService;
-  const deleteTaskPermanently = useTaskPermanentDelete({
-    zcodeTaskService,
-    workspacePath: tab.workspacePath,
-    workspaceIdentity: tab.workspaceIdentity,
-  });
+  const deleteTaskPermanently = useTaskPermanentDelete();
   const taskItemsRef = useRef(taskItems);
   taskItemsRef.current = taskItems;
   const workspaceZCodeStateRef = useRef(workspaceZCodeState);
@@ -1137,7 +1133,9 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
             onRenameTask={handleRenameTask}
             onSetTaskPinned={handleSetTaskPinned}
             onArchiveTask={handleArchiveTask}
-            onDeleteTask={deleteTaskPermanently}
+            onDeleteTask={(task) => {
+              void deleteTaskPermanently(task, zcodeTaskService);
+            }}
             onSetTaskUnread={handleSetTaskUnread}
             readOnlyReason={readOnlyReason}
           />
