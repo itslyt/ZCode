@@ -635,6 +635,8 @@ export async function queryTaskUsage(
   let ttftTotalMs = 0;
   let ttftSampleCount = 0;
   let decodeWindowMs = 0;
+  let rawInputTokens = 0;
+  let rawCacheReadTokens = 0;
   const inputBaselineBySource: Record<string, number> = {};
 
   for (const row of rows) {
@@ -672,6 +674,8 @@ export async function queryTaskUsage(
         decodeWindowMs += Math.max(0, rowDurationMs - rowTtftMs);
       }
     }
+    rawInputTokens += Math.max(0, Number(row.inputTokens ?? 0));
+    rawCacheReadTokens += Math.max(0, Number(row.cacheReadTokens ?? 0));
     if (row.status === "error") {
       modelErrorCount += 1;
     }
@@ -702,6 +706,8 @@ export async function queryTaskUsage(
     ttftTotalMs,
     ttftSampleCount,
     decodeWindowMs,
+    rawInputTokens,
+    rawCacheReadTokens,
   };
 }
 

@@ -13,9 +13,11 @@ export interface SessionStatsView {
   outputTokens: number;
 }
 
-/** 会话级统计展示模型：全部由 v4/conversation/usage 的 DB 聚合派生，无窗口/条数限制。 */
+/** 会话级统计展示模型：全部由 v4/conversation/usage 的 DB 聚合派生，无窗口/条数限制；Token 用量与缓存拆分为提供商原始口径。 */
 export function buildSessionStatsView(usage: V4ConversationUsageResult): SessionStatsView {
-  const inputSide = usage.inputTokens + usage.cacheReadTokens;
+  const uncachedInput = usage.rawInputTokens;
+  const cacheRead = usage.rawCacheReadTokens;
+  const inputSide = uncachedInput + cacheRead;
   return {
     hasActivity: usage.modelRequestCount > 0 || usage.totalTokens > 0,
     modelDurationMs: usage.modelDurationMs,
@@ -23,10 +25,10 @@ export function buildSessionStatsView(usage: V4ConversationUsageResult): Session
     ttftAvgMs: usage.ttftSampleCount > 0 ? usage.ttftTotalMs / usage.ttftSampleCount : null,
     tokensPerSecond:
       usage.decodeWindowMs > 0 ? (usage.outputTokens * 1000) / usage.decodeWindowMs : null,
-    totalTokens: usage.totalTokens,
-    cacheHitRate: inputSide > 0 ? usage.cacheReadTokens / inputSide : null,
-    uncachedInputTokens: usage.inputTokens,
-    cacheReadTokens: usage.cacheReadTokens,
+    totalTokens: uncachedInput + cacheRead + usage.outputTokens,
+    cacheHitRate: inputSide > 0 ? cacheRead / inputSide : null,
+    uncachedInputTokens: uncachedInput,
+    cacheReadTokens: cacheRead,
     outputTokens: usage.outputTokens,
   };
 }

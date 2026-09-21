@@ -2918,6 +2918,8 @@ export async function getTaskTokenUsage(
       ttftTotalMs: 0,
       ttftSampleCount: 0,
       decodeWindowMs: 0,
+      rawInputTokens: 0,
+      rawCacheReadTokens: 0,
     };
   }
 
@@ -2940,6 +2942,8 @@ export async function getTaskTokenUsage(
     ttftTotalMs: usage.ttftTotalMs,
     ttftSampleCount: usage.ttftSampleCount,
     decodeWindowMs: usage.decodeWindowMs,
+    rawInputTokens: usage.rawInputTokens,
+    rawCacheReadTokens: usage.rawCacheReadTokens,
   };
 }
 

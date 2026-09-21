@@ -1643,6 +1643,8 @@ export const zcodeTaskTokenUsageResultSchema = z
     ttftTotalMs: z.number().nonnegative(),
     ttftSampleCount: z.number().int().nonnegative(),
     decodeWindowMs: z.number().nonnegative(),
+    rawInputTokens: z.number().int().nonnegative(),
+    rawCacheReadTokens: z.number().int().nonnegative(),
     modelRequestCount: z.number().int().nonnegative(),
     modelErrorCount: z.number().int().nonnegative(),
     inputBaselineBySource: z.record(z.string(), z.number().int().nonnegative()),

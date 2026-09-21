@@ -10,7 +10,7 @@
 - 工具调用用时：`tool_usage.duration_ms` 之和
 - 首 token 平均（TTFT）：`time_to_first_token_ms` 均值（无样本时不展示）
 - 输出速度（TPS）：`outputTokens × 1000 ÷ Σ(duration_ms − time_to_first_token_ms)`（解码窗口为 0 时不展示）
-- Token 用量：`totalTokens`，括号内拆分缓存命中百分比、未缓存输入、缓存读取、输出
+- Token 用量：提供商原始口径 `未缓存输入 + 缓存读取 + 输出`（与 DSH 总量口径一致），括号内拆分缓存命中百分比（read/(read+uncached)）、未缓存输入、缓存读取、输出；不使用增量消耗口径字段
 - 时长格式：1 分钟内秒带 1 位小数（`6.5秒`），满 1 分钟取整分秒（`42分57秒`；en `42m 57s`）
 - 无活动会话（无模型请求且 totalTokens=0）不渲染；查询失败保留旧值不闪零
 - 切会话展示目标会话自己的统计（按 sessionId 查询，scopeKey 挡旧结果）
@@ -20,7 +20,7 @@
 - 权威数据：CLI 侧 DB 聚合。`model_usage` / `tool_usage` 表持久化每请求/每工具时长与 TTFT；
   `queryTaskUsage`（adapters repositories/usage.ts）聚合后经 `v4/conversation/usage`
   （`V4ConversationUsageResult` 新增 modelDurationMs / toolDurationMs / ttftTotalMs /
-  ttftSampleCount / decodeWindowMs 五个字段）下发。无窗口、无条数上限。
+  ttftSampleCount / decodeWindowMs / rawInputTokens / rawCacheReadTokens 七个字段）下发。无窗口、无条数上限。
 - UI 侧唯一持有者：`useSessionStats` hook（1s 轮询，仿 useSessionDebug 的完成节拍与 scope 防护）；
   展示模型由纯函数 `buildSessionStatsView` 派生；不新建 store、不落盘。
 
@@ -30,7 +30,7 @@
 - `packages/ui/src/hooks/useSessionStats.ts`：轮询 hook
 - `packages/ui/src/v4/SessionStatsBar.tsx`：展示组件，SessionPane 在 `{composerNode}` 之后按 sessionId 渲染
 - 协议：`packages/shared/src/zcode-protocol-v4/transport.ts` 的 `v4ConversationUsageResultSchema`
-  增补五个非负数值字段；contracts `TaskUsageQueryResult` 同步；handler 无 usageStore 时回退全 0
+  增补七个非负数值字段；contracts `TaskUsageQueryResult` 同步；handler 无 usageStore 时回退全 0
 
 ## 验收场景
 

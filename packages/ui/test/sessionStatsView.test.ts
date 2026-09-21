@@ -24,6 +24,8 @@ function usage(overrides: Partial<V4ConversationUsageResult> = {}): V4Conversati
     ttftTotalMs: 3_000,
     ttftSampleCount: 2,
     decodeWindowMs: 10_000,
+    rawInputTokens: 100,
+    rawCacheReadTokens: 900,
     ...overrides,
   };
 }
@@ -38,6 +40,7 @@ test("派生：TTFT 均值与 TPS 由聚合字段计算", () => {
 test("派生：缓存命中率按 cacheRead / (cacheRead + 未缓存输入)", () => {
   const view = buildSessionStatsView(usage());
   assert.equal(view.cacheHitRate, 0.9);
+  assert.equal(view.totalTokens, 1200);
   assert.equal(view.uncachedInputTokens, 100);
 });
 
@@ -50,6 +53,8 @@ test("派生：无样本/零窗口时对应项为 null，无活动会话 hasActi
       ttftTotalMs: 0,
       decodeWindowMs: 0,
       outputTokens: 0,
+      rawInputTokens: 0,
+      rawCacheReadTokens: 0,
       inputTokens: 0,
       cacheReadTokens: 0,
     }),
