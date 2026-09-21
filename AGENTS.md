@@ -8,7 +8,7 @@
 ## 命令与仓库结构
 
 开工前运行 `node scripts/check-workspace-freshness.mjs` 检查基线。Node 版本以 `mise.toml` 为准。
-本 fork 自维护功能的改码 / 真机验证 / 打包流程与坑位见 `CUSTOM_BUILD_HANDOFF.md`。
+本 fork 自维护改动的通用开发流程（改码 / 真机验证 / 打包 / 上游同步 / 坑位）见 `CUSTOM_DEV_WORKFLOW.md`；功能细节以各自 `specs/` 为准。
 
 以下命令从仓库根目录执行：
 
