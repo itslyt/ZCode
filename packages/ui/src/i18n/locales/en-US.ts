@@ -4473,6 +4473,8 @@ const enUS: Record<string, string> = {
   "chat.statusPanel.runningAgentsValuePlural": "{count} running",
   "chat.statusPanel.runningStop": "Stop",
   "chat.toolbar.model.label": "Choose model",
+  "chat.toolbar.tpsStats.firstToken": "first token",
+  "chat.toolbar.tpsStats.out": "out",
   "chat.toolbar.draftConfigWriteFailed": "Failed to update configuration. Please try again.",
   "chat.toolbar.model.description":
     "Choose the model used by this task. The shortcut opens the model menu.",

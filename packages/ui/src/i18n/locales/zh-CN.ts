@@ -4203,6 +4203,8 @@ const zhCN: Record<string, string> = {
   "chat.statusPanel.runningAgentsValuePlural": "{count} 运行",
   "chat.statusPanel.runningStop": "停止",
   "chat.toolbar.model.label": "选择模型",
+  "chat.toolbar.tpsStats.firstToken": "首 token",
+  "chat.toolbar.tpsStats.out": "out",
   "chat.toolbar.draftConfigWriteFailed": "配置修改失败，请重试",
   "chat.toolbar.model.description": "选择当前任务使用的模型。快捷键只打开模型菜单。",
   "chat.toolbar.model.manageModels": "管理模型",
