@@ -65,7 +65,6 @@ export function ChatPromptEditor({
   attachmentAction,
   betweenCancelAndSubmitAction,
   submitControl,
-  toolbarCenterNode,
   inputTestId,
   submitTestId,
   cancelTestId,
@@ -123,8 +122,6 @@ export function ChatPromptEditor({
   /** 行内编辑专用：固定插在取消与主提交之间的第二动作。 */
   betweenCancelAndSubmitAction?: ReactNode;
   submitControl?: ReactNode;
-  /** 工具栏行绝对居中渲染（如 TPS 统计胶囊）；不参与工具栏宽度自适应测量。 */
-  toolbarCenterNode?: ReactNode;
   inputTestId?: string;
   submitTestId?: string;
   cancelTestId?: string;
@@ -388,7 +385,7 @@ export function ChatPromptEditor({
           appSlashCommands={appSlashCommands}
           enableMentionPanel={enableMentionPanel}
         />
-        <div ref={toolbarRef} className="group/toolbar relative flex items-end gap-3">
+        <div ref={toolbarRef} className="group/toolbar flex items-end gap-3">
           <div className="flex min-w-0 flex-1 items-center" data-composer-leading-actions>
             <div className="flex shrink-0 items-center gap-1" data-composer-leading-content>
               {hasActionMenu ? (
@@ -413,7 +410,6 @@ export function ChatPromptEditor({
               ) : null}
             </div>
           </div>
-          {toolbarCenterNode}
           <div
             className="ml-auto flex shrink-0 items-center justify-end gap-1.5"
             data-composer-trailing-actions

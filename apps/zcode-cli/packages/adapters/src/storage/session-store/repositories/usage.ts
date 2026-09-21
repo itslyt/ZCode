@@ -603,7 +603,9 @@ export async function queryTaskUsage(
          cache_creation_input_tokens as cacheCreationTokens,
          cache_read_input_tokens as cacheReadTokens,
          computed_total_tokens as computedTotalTokens,
-         provider_total_tokens as providerTotalTokens
+         provider_total_tokens as providerTotalTokens,
+         duration_ms as durationMs,
+         time_to_first_token_ms as timeToFirstTokenMs
        from model_usage
        where session_id = ?
        order by started_at asc, id asc`,
@@ -618,6 +620,8 @@ export async function queryTaskUsage(
     querySource: string;
     reasoningTokens: number;
     status: string;
+    durationMs: number | null;
+    timeToFirstTokenMs: number | null;
   }>;
 
   let totalTokens = 0;
@@ -627,6 +631,10 @@ export async function queryTaskUsage(
   let cacheCreationTokens = 0;
   let cacheReadTokens = 0;
   let modelErrorCount = 0;
+  let modelDurationMs = 0;
+  let ttftTotalMs = 0;
+  let ttftSampleCount = 0;
+  let decodeWindowMs = 0;
   const inputBaselineBySource: Record<string, number> = {};
 
   for (const row of rows) {
@@ -654,10 +662,29 @@ export async function queryTaskUsage(
       cacheCreationTokens += Number(row.cacheCreationTokens ?? 0);
       cacheReadTokens += Number(row.cacheReadTokens ?? 0);
     }
+    const rowDurationMs = row.durationMs === null ? null : Number(row.durationMs);
+    if (rowDurationMs !== null && Number.isFinite(rowDurationMs)) {
+      modelDurationMs += Math.max(0, rowDurationMs);
+      const rowTtftMs = row.timeToFirstTokenMs === null ? null : Number(row.timeToFirstTokenMs);
+      if (rowTtftMs !== null && Number.isFinite(rowTtftMs) && rowTtftMs >= 0) {
+        ttftTotalMs += rowTtftMs;
+        ttftSampleCount += 1;
+        decodeWindowMs += Math.max(0, rowDurationMs - rowTtftMs);
+      }
+    }
     if (row.status === "error") {
       modelErrorCount += 1;
     }
   }
+
+  const toolRow = db
+    .prepare(
+      `select coalesce(sum(duration_ms), 0) as toolDurationMs
+       from tool_usage
+       where session_id = ? and duration_ms is not null`,
+    )
+    .get(input.sessionID) as { toolDurationMs: number | null };
+  const toolDurationMs = Math.max(0, Number(toolRow?.toolDurationMs ?? 0));
 
   return {
     sessionID: input.sessionID,
@@ -670,6 +697,11 @@ export async function queryTaskUsage(
     modelRequestCount: rows.length,
     modelErrorCount,
     inputBaselineBySource,
+    modelDurationMs,
+    toolDurationMs,
+    ttftTotalMs,
+    ttftSampleCount,
+    decodeWindowMs,
   };
 }
 

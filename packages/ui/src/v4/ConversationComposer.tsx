@@ -49,8 +49,6 @@ import type {
   ConversationSnapshot,
   SessionConfigState,
 } from "@zcode/shared/zcode-protocol-v4";
-import { ComposerTpsCapsule } from "@/v4/composer/ComposerTpsCapsule.js";
-import { useComposerTurnStats } from "@/v4/composer/composerTurnStats.js";
 import {
   ArrowUpIcon,
   ClipboardPenLineIcon,
@@ -2023,11 +2021,6 @@ function ConversationComposerImpl({
   // 避免每个 token 批次都重建 Tooltip/Select 子树。
   const composerUsage = snapshot?.usage ?? null;
   const composerPhase = snapshot?.control.phase ?? null;
-  const turnStats = useComposerTurnStats(snapshot);
-  const toolbarCenterNode = useMemo(
-    () => (turnStats ? <ComposerTpsCapsule view={turnStats} /> : null),
-    [turnStats],
-  );
   const handleSelectModelTrace = useCallback(
     (nextProvider: string, nextModel: string, sourceModel: ModelSelectionSource | null) =>
       runUserAction({
@@ -2290,7 +2283,6 @@ function ConversationComposerImpl({
           enableMentionPanel
           leadingActions={leadingActionsNode}
           submitControl={submitControlNode}
-          toolbarCenterNode={toolbarCenterNode}
           className="p-0"
           onChange={handleEditorChange}
           onFocus={handleEditorFocus}

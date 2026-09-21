@@ -1065,6 +1065,15 @@ export interface TaskUsageQueryResult {
   modelRequestCount: number;
   modelErrorCount: number;
   inputBaselineBySource: Record<string, number>;
+  /** 会话内模型请求 duration_ms 之和（模型用时）。 */
+  modelDurationMs: number;
+  /** tool_usage 内 duration_ms 之和（工具调用用时）。 */
+  toolDurationMs: number;
+  /** time_to_first_token_ms 的总和与样本数，供 UI 算平均 TTFT。 */
+  ttftTotalMs: number;
+  ttftSampleCount: number;
+  /** (duration_ms - time_to_first_token_ms) 之和，即解码窗口，供 UI 算输出速度。 */
+  decodeWindowMs: number;
 }
 
 export interface UsageStorePort {

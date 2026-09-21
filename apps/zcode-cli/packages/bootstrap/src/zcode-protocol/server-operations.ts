@@ -2913,6 +2913,11 @@ export async function getTaskTokenUsage(
       modelRequestCount: 0,
       modelErrorCount: 0,
       inputBaselineBySource: {},
+      modelDurationMs: 0,
+      toolDurationMs: 0,
+      ttftTotalMs: 0,
+      ttftSampleCount: 0,
+      decodeWindowMs: 0,
     };
   }
 
@@ -2930,6 +2935,11 @@ export async function getTaskTokenUsage(
     modelRequestCount: usage.modelRequestCount,
     modelErrorCount: usage.modelErrorCount,
     inputBaselineBySource: usage.inputBaselineBySource,
+    modelDurationMs: usage.modelDurationMs,
+    toolDurationMs: usage.toolDurationMs,
+    ttftTotalMs: usage.ttftTotalMs,
+    ttftSampleCount: usage.ttftSampleCount,
+    decodeWindowMs: usage.decodeWindowMs,
   };
 }
 
