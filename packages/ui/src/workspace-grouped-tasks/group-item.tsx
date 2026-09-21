@@ -75,6 +75,7 @@ export function GroupItem({
   onStartRenameTask,
   onArchiveTask,
   onMarkTaskAsUnread,
+  onDeleteTask,
   newGroupSetup,
   onNewGroupSetupStarted,
   collapsed,
@@ -107,6 +108,7 @@ export function GroupItem({
   onStartRenameTask: (task: ZCodeTaskMeta) => void;
   onArchiveTask: (task: ZCodeTaskMeta) => void;
   onMarkTaskAsUnread: (task: ZCodeTaskMeta) => void;
+  onDeleteTask?: (task: ZCodeTaskMeta) => void;
   newGroupSetup: boolean;
   onNewGroupSetupStarted: (groupId: string) => void;
   collapsed: boolean;
@@ -707,6 +709,7 @@ export function GroupItem({
                     onStartRenameTask={onStartRenameTask}
                     onArchiveTask={onArchiveTask}
                     onMarkTaskAsUnread={onMarkTaskAsUnread}
+                    onDeleteTask={onDeleteTask}
                     activeDragTaskKey={activeDragTaskKey}
                     tooltipsDisabled={tooltipsDisabled}
                   />
@@ -734,6 +737,7 @@ export function GroupItem({
                       onStartRenameTask={onStartRenameTask}
                       onArchiveTask={onArchiveTask}
                       onMarkTaskAsUnread={onMarkTaskAsUnread}
+                      onDeleteTask={onDeleteTask}
                       activeDragTaskKey={activeDragTaskKey}
                       tooltipsDisabled={tooltipsDisabled}
                     />

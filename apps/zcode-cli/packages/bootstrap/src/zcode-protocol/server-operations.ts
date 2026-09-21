@@ -40,7 +40,10 @@ import {
   type UsageStorePort,
   type WorkspaceId,
 } from "@zcode/contracts";
-import { v4ConversationTurnUsageParamsSchema } from "@zcode/shared/zcode-protocol-v4";
+import {
+  v4ConversationDeleteParamsSchema,
+  v4ConversationTurnUsageParamsSchema,
+} from "@zcode/shared/zcode-protocol-v4";
 import {
   DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
   ZCODE_SESSION_RUNTIME_PREFERENCES_REQUEST_TIMEOUT_MS,
@@ -2984,6 +2987,19 @@ export async function getConversationTurnUsage(
       modelId: turn.modelId,
     })),
   };
+}
+
+export async function deleteConversation(
+  context: ZCodeProtocolAgentServerContext,
+  rawParams: unknown,
+) {
+  const params = parseParams(v4ConversationDeleteParamsSchema, rawParams ?? {});
+  const sessionStore = context.deps.sessionStore;
+  if (!sessionStore) {
+    throw new ProtocolRequestError(-32003, "Cannot delete conversation without session store");
+  }
+  await sessionStore.deleteSession(params.sessionId as SessionId);
+  return { sessionId: params.sessionId };
 }
 
 /**

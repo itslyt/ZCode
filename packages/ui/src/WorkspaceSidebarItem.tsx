@@ -88,6 +88,7 @@ import {
   scanWindowsReservedDeviceNameFiles,
 } from "@/lib/workspaceRemovalSafety.js";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
+import { useTaskPermanentDelete } from "@/hooks/useTaskPermanentDelete.js";
 import { toast } from "@/components/ui/toast.js";
 
 export type SortableBindings = Pick<ReturnType<typeof useSortable>, "attributes" | "listeners">;
@@ -208,6 +209,11 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
   const confirmDialog = useConfirmDialog();
   const baseServices = useBaseWorkspaceServices();
   const zcodeTaskService = services.zcodeTaskService;
+  const deleteTaskPermanently = useTaskPermanentDelete({
+    zcodeTaskService,
+    workspacePath: tab.workspacePath,
+    workspaceIdentity: tab.workspaceIdentity,
+  });
   const taskItemsRef = useRef(taskItems);
   taskItemsRef.current = taskItems;
   const workspaceZCodeStateRef = useRef(workspaceZCodeState);
@@ -1131,6 +1137,7 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
             onRenameTask={handleRenameTask}
             onSetTaskPinned={handleSetTaskPinned}
             onArchiveTask={handleArchiveTask}
+            onDeleteTask={deleteTaskPermanently}
             onSetTaskUnread={handleSetTaskUnread}
             readOnlyReason={readOnlyReason}
           />

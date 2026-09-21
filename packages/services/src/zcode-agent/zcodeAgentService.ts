@@ -272,6 +272,7 @@ import {
   v4ConversationSubscribeResultSchema,
   v4ConversationUsageResultSchema,
   v4ConversationTurnUsageResultSchema,
+  v4ConversationDeleteResultSchema,
   v4SessionsIndexSubscribeResultSchema,
   v4UsageStatsResultSchema,
   v4WorkspaceConfigSubscribeResultSchema,
@@ -3672,6 +3673,16 @@ export function createZCodeAgentService(
         V4_METHODS.conversationTurnUsage,
         { sessionId: params.sessionId },
         v4ConversationTurnUsageResultSchema,
+      );
+    },
+
+    async deleteConversation(params: ZCodeAgentSessionTarget) {
+      // 物理删除为观察者发起的管理操作：不为已回收会话拉起 runtime。
+      const client = await getReadOnlyClient(params, "existing-only");
+      return client.request(
+        V4_METHODS.conversationDelete,
+        { sessionId: params.sessionId },
+        v4ConversationDeleteResultSchema,
       );
     },
 

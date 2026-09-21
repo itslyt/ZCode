@@ -247,6 +247,18 @@ function resolveZCodeAgentCurrentLogFilePath(now = new Date()): string {
   return join(logDir, `zcode-${formatZCodeAgentLogDate(now)}.jsonl`);
 }
 
+/** tombstone 完成后物理删除 CLI 会话数据（释放磁盘）；失败仅记日志，不影响列表语义。 */
+async function purgeConversation(
+  agentService: IZCodeAgentService,
+  target: { workspacePath: string; workspaceIdentity?: string; taskId: string },
+): Promise<void> {
+  await agentService.deleteConversation({
+    workspacePath: target.workspacePath,
+    ...(target.workspaceIdentity ? { workspaceIdentity: target.workspaceIdentity } : {}),
+    sessionId: target.taskId,
+  });
+}
+
 export function createZCodeTaskServiceAdapter(
   options: CreateZCodeTaskServiceAdapterOptions,
 ): IZCodeTaskService {
@@ -2822,6 +2834,9 @@ export function createZCodeTaskServiceAdapter(
       // 立即移除缓存并换代 deleted tombstone join，避免重启或 live upsert 后复活。
       // 同时携带 meta，让桌面/远控的重复订阅能按同一事件去重 membership bump。
       emitWorkspaceTaskListChanged(params, meta, "task_deleted");
+      void purgeConversation(options.zcodeAgentService, params).catch((error) => {
+        logger.error(undefined, "[TaskDeletion] 物理删除会话数据失败", { ...params, error });
+      });
     },
 
     async deleteArchivedTask(params): Promise<boolean> {
@@ -2830,6 +2845,9 @@ export function createZCodeTaskServiceAdapter(
       // 先持久化成功再写 overlay；否则失败项会被内存 deleted 标记提前隐藏。
       setOverlay(params, { deleted: true });
       emitWorkspaceTaskListChanged(params, meta, "task_deleted");
+      void purgeConversation(options.zcodeAgentService, params).catch((error) => {
+        logger.error(undefined, "[TaskDeletion] 物理删除会话数据失败", { ...params, error });
+      });
       return true;
     },
 
@@ -2856,6 +2874,12 @@ export function createZCodeTaskServiceAdapter(
             continue;
           }
           setOverlay(target, { deleted: true });
+          void purgeConversation(options.zcodeAgentService, target).catch((error) => {
+            logger.error(undefined, "[ArchivedTaskDeletion] 物理删除会话数据失败", {
+              ...target,
+              error,
+            });
+          });
           result.deletedTaskIds.push(taskId);
         } catch (error) {
           result.failedTaskIds.push(taskId);

@@ -6,6 +6,7 @@ interface TaskActionMenuItemProps {
   disabled?: boolean;
   onSelect?: () => void;
   title?: string;
+  className?: string;
 }
 
 interface TaskActionMenuSeparatorProps {
@@ -39,6 +40,7 @@ export function TaskActionMenuContent({
   onCopyTaskLogPath,
   onCopySessionId,
   onViewModelTrajectory,
+  onDeleteTask,
 }: {
   intl: {
     formatMessage: (desc: { id: string }, values?: Record<string, string>) => string;
@@ -74,6 +76,8 @@ export function TaskActionMenuContent({
   onCopyTaskLogPath: () => void;
   onCopySessionId?: () => void;
   onViewModelTrajectory?: () => void;
+  /** 直接彻底删除（确认框后 tombstone + 物理删除）；未注入不渲染。 */
+  onDeleteTask?: () => void;
 }) {
   const taskTargetActionsDisabled = disableTaskActions || disableTaskTargetActions;
 
@@ -203,6 +207,23 @@ export function TaskActionMenuContent({
             {/* 任务菜单之前只有复制日志/路径，用户遇到任务问题时还要手动回到反馈中心。
                 “反馈问题”不是任务管理动作，单独放在菜单底部更符合兜底求助入口的层级。 */}
             {intl.formatMessage({ id: "taskList.feedback" })}
+          </Item>
+        </>
+      ) : null}
+      {onDeleteTask ? (
+        <>
+          <Separator />
+          <Item
+            className="text-destructive focus:text-destructive"
+            disabled={taskTargetActionsDisabled}
+            title={disabledReason}
+            onSelect={() => {
+              if (!taskTargetActionsDisabled) {
+                onDeleteTask();
+              }
+            }}
+          >
+            {intl.formatMessage({ id: "taskList.delete" })}
           </Item>
         </>
       ) : null}

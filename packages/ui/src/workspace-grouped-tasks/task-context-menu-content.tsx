@@ -26,6 +26,7 @@ export function GroupedTaskContextMenuContent({
   onOpenTaskPathInFileManager,
   onCopyText,
   onOpenTaskFeedback,
+  onDeleteTask,
   disabledReason,
 }: {
   task: ZCodeTaskMeta;
@@ -45,6 +46,8 @@ export function GroupedTaskContextMenuContent({
   onOpenTaskPathInFileManager: () => void;
   onCopyText: (label: string, text: string | null) => void;
   onOpenTaskFeedback: () => void;
+  /** 未注入时不渲染删除项（直接彻底删除入口）。 */
+  onDeleteTask?: (task: ZCodeTaskMeta) => void;
   disabledReason?: string;
 }) {
   return (
@@ -177,6 +180,23 @@ export function GroupedTaskContextMenuContent({
       <ContextMenuItem onSelect={onOpenTaskFeedback}>
         {intl.formatMessage({ id: "taskList.feedback" })}
       </ContextMenuItem>
+      {onDeleteTask ? (
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            className="text-destructive focus:text-destructive"
+            disabled={Boolean(disabledReason)}
+            title={disabledReason}
+            onSelect={() => {
+              if (!disabledReason) {
+                onDeleteTask(task);
+              }
+            }}
+          >
+            {intl.formatMessage({ id: "taskList.delete" })}
+          </ContextMenuItem>
+        </>
+      ) : null}
     </ContextMenuContent>
   );
 }

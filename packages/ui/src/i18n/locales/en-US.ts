@@ -524,10 +524,10 @@ const enUS: Record<string, string> = {
   "commandCenter.moreResults": "Show more results",
   "confirmDialog.taskDeleteTitle": "Delete this task?",
   "confirmDialog.taskDeleteDescription":
-    "Task “{taskTitle}” will be removed from this workspace, and the current record cannot be restored.",
+    "The session data of task “{taskTitle}” will be permanently deleted, freeing disk space. This cannot be undone.",
   "confirmDialog.archivedTaskDeleteTitle": "Delete this archived task?",
   "confirmDialog.archivedTaskDeleteDescription":
-    "Tasks will be removed from the task list and Archive.",
+    "The task's session data will be permanently deleted, freeing disk space. This cannot be undone.",
   "taskList.deleteAllArchived": "Delete all archived tasks",
   "taskList.archivedActions": "Archive actions",
   "taskList.archivedTaskCount": "{count} archived tasks",
@@ -1539,6 +1539,7 @@ const enUS: Record<string, string> = {
   "taskList.pin": "Pin task",
   "taskList.unpin": "Unpin task",
   "taskList.rename": "Rename task",
+  "taskList.deleteFailed": "Failed to delete the task. Please retry.",
   "taskList.archive": "Archive task",
   "taskList.archiveLocal": "Archive local task",
   "taskList.archiveRemote": "Archive remote task",

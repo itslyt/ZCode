@@ -50,4 +50,4 @@ composer 卡片内底行居中展示两枚可点击胶囊（DSH 式），详情�
 - 兼容：host 无 `queryTurnUsage` 时 handler 回退空 turns，胶囊不渲染。
 - 修订：动作行调用点必须传 `turnId`（漏传则胶囊恒不渲染）；用时浮层首两行为「本轮用时 / 速度」（速度 = 输出 token ÷ 解码窗，解码窗 = 模型用时 − 首 token）；
   两个统计 RPC 固定 `existing-only`：观察路径不得为已回收会话拉起 runtime（避免重置上下文快照等副作用）。
-- 关联键：UI 行 `turnId` 为 msg_ 值域，等于 `turn_usage.user_message_id`；逐轮 map 以 `userMessageId` 为键（回退 `turn_id`），协议字段 `userMessageId` nullable。
+- 关联键：UI 行 `turnId` 为 msg\_ 值域，等于 `turn_usage.user_message_id`；逐轮 map 以 `userMessageId` 为键（回退 `turn_id`），协议字段 `userMessageId` nullable。

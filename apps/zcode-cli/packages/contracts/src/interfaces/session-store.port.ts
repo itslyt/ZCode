@@ -1298,4 +1298,6 @@ export interface SessionStorePort {
     summary?: { additions: number; deletions: number; files: number; diffs?: FileDiff[] };
   }): Promise<void>;
   clearRevert(sessionID: SessionId): Promise<void>;
+  /** 物理删除会话全部数据（单事务）；0 行视为成功，幂等可重试。 */
+  deleteSession(sessionID: SessionId): Promise<void>;
 }

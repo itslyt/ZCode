@@ -793,6 +793,7 @@ export function TaskListItemContextMenuContent({
   onStartRenameTask,
   onArchiveTask,
   onMarkTaskAsUnread,
+  onDeleteTask,
   disableTaskActions = false,
   disabledReason,
 }: {
@@ -805,6 +806,7 @@ export function TaskListItemContextMenuContent({
   onStartRenameTask: (taskId: string, currentTitle: string) => void;
   onArchiveTask: (taskId: string) => void;
   onMarkTaskAsUnread: (taskId: string) => void;
+  onDeleteTask?: () => void;
   disableTaskActions?: boolean;
   disabledReason?: string;
 }) {
@@ -954,6 +956,7 @@ export function TaskListItemContextMenuContent({
           title: taskTitle,
         });
       }}
+      onDeleteTask={onDeleteTask}
     />
   );
 }

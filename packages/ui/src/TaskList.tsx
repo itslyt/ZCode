@@ -46,6 +46,7 @@ export const TaskList = memo(function TaskList({
   onSetTaskPinned,
   onArchiveTask,
   onSetTaskUnread,
+  onDeleteTask,
   readOnlyReason,
 }: {
   workspacePath: string;
@@ -66,6 +67,7 @@ export const TaskList = memo(function TaskList({
   onRenameTask: (taskId: string, title: string) => Promise<ZCodeTaskMeta | null>;
   onSetTaskPinned: (taskId: string, pinned: boolean) => Promise<ZCodeTaskMeta | null>;
   onArchiveTask: (taskId: string) => Promise<ZCodeTaskMeta | null>;
+  onDeleteTask?: (task: ZCodeTaskMeta) => void;
   onSetTaskUnread: (taskId: string, unread: boolean) => Promise<ZCodeTaskMeta | null>;
   readOnlyReason?: string;
 }) {
@@ -460,6 +462,7 @@ export const TaskList = memo(function TaskList({
                   onStartRenameTask={handleStartRenameTask}
                   onArchiveTask={handleArchiveTask}
                   onMarkTaskAsUnread={handleMarkTaskAsUnread}
+                  onDeleteTask={onDeleteTask ? () => onDeleteTask(contextMenuTask) : undefined}
                   disableTaskActions={Boolean(readOnlyReason)}
                   disabledReason={readOnlyReason}
                 />

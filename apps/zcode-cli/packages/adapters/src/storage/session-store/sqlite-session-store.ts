@@ -916,6 +916,10 @@ export class SqliteSessionStore
     return sessionRepository.clearRevert(this.db, sessionID);
   }
 
+  async deleteSession(sessionID: SessionId): Promise<void> {
+    return sessionRepository.deleteSession(this.db, sessionID);
+  }
+
   async upsertScriptWorkflowDefinition(
     input: UpsertScriptWorkflowDefinitionInput,
   ): Promise<ScriptWorkflowDefinitionRecord> {

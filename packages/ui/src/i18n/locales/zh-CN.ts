@@ -477,9 +477,11 @@ const zhCN: Record<string, string> = {
   "commandCenter.empty.recentTasks": "暂无最近任务",
   "commandCenter.moreResults": "查看更多结果",
   "confirmDialog.taskDeleteTitle": "删除这个任务？",
-  "confirmDialog.taskDeleteDescription": "任务“{taskTitle}”会从当前工作区移除，现有记录无法恢复。",
+  "confirmDialog.taskDeleteDescription":
+    "任务“{taskTitle}”的会话数据将被永久删除并释放磁盘空间，无法恢复。",
   "confirmDialog.archivedTaskDeleteTitle": "删除这个归档任务？",
-  "confirmDialog.archivedTaskDeleteDescription": "任务将从任务列表和归档列表中移除。",
+  "confirmDialog.archivedTaskDeleteDescription":
+    "任务的会话数据将被永久删除并释放磁盘空间，无法恢复。",
   "taskList.deleteAllArchived": "删除所有归档任务",
   "taskList.archivedActions": "归档操作",
   "taskList.archivedTaskCount": "{count} 个归档任务",
@@ -1444,6 +1446,7 @@ const zhCN: Record<string, string> = {
   "taskList.pin": "置顶任务",
   "taskList.unpin": "取消置顶任务",
   "taskList.rename": "重命名任务",
+  "taskList.deleteFailed": "删除任务失败，请重试",
   "taskList.archive": "归档任务",
   "taskList.archiveLocal": "归档本地任务",
   "taskList.archiveRemote": "归档远端任务",

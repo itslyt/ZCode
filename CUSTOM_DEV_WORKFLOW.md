@@ -94,9 +94,9 @@ ZCODE_ENV=production ZCODE_PREVIEW_IDENTITY=1 pnpm bundle:desktop   # 后台跑�
 
 ## 8. 外部能力清单
 
-| 能力 | 用途 | 入口 |
-| --- | --- | --- |
-| agent-browser CLI | 浏览器自动化（Web 验证）/ Electron CDP（备用） | `open / connect / snapshot / click / eval / screenshot` |
-| node:sqlite | DB 只读直查 | `node -e` 或临时 `.mjs` |
-| nvm node v24 + pnpm 10 | 检查 / 测试 / 构建 | 见 §1 |
-| 无其他外部服务 | 验证不依赖网络（登录态来自数据目录副本） | — |
+| 能力                   | 用途                                           | 入口                                                    |
+| ---------------------- | ---------------------------------------------- | ------------------------------------------------------- |
+| agent-browser CLI      | 浏览器自动化（Web 验证）/ Electron CDP（备用） | `open / connect / snapshot / click / eval / screenshot` |
+| node:sqlite            | DB 只读直查                                    | `node -e` 或临时 `.mjs`                                 |
+| nvm node v24 + pnpm 10 | 检查 / 测试 / 构建                             | 见 §1                                                   |
+| 无其他外部服务         | 验证不依赖网络（登录态来自数据目录副本）       | —                                                       |

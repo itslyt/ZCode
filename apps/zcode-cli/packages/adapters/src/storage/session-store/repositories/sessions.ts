@@ -355,3 +355,30 @@ function mustGetSession(db: DatabaseSync, sessionID: SessionId): SessionInfo {
   }
   return session;
 }
+
+/**
+ * 物理删除会话：单事务清理 session 及其全部关联行，释放磁盘空间。
+ * 0 行视为成功（幂等），调用方可安全重试。
+ */
+export async function deleteSession(db: DatabaseSync, sessionID: SessionId): Promise<void> {
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.prepare("delete from part where session_id = ?").run(sessionID);
+    db.prepare("delete from message where session_id = ?").run(sessionID);
+    db.prepare("delete from session_entry where session_id = ?").run(sessionID);
+    db.prepare("delete from session_input where session_id = ?").run(sessionID);
+    db.prepare("delete from session_target where session_id = ?").run(sessionID);
+    db.prepare(
+      "delete from session_task_link where parent_session_id = ? or child_session_id = ?",
+    ).run(sessionID, sessionID);
+    db.prepare("delete from todo where session_id = ?").run(sessionID);
+    db.prepare("delete from model_usage where session_id = ?").run(sessionID);
+    db.prepare("delete from tool_usage where session_id = ?").run(sessionID);
+    db.prepare("delete from turn_usage where session_id = ?").run(sessionID);
+    db.prepare("delete from session where id = ?").run(sessionID);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
