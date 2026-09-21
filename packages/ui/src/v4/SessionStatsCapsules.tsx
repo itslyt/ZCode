@@ -44,7 +44,7 @@ export function SessionStatsCapsules({
 
   return (
     <div
-      className="flex items-center justify-center gap-2 pb-2"
+      className="flex shrink-0 items-center gap-2 self-center"
       data-testid="session-stats-capsules"
     >
       <Popover>

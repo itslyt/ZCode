@@ -2295,7 +2295,7 @@ function ConversationComposerImpl({
           enableMentionPanel
           leadingActions={leadingActionsNode}
           submitControl={submitControlNode}
-          footerNode={sessionStatsNode}
+          toolbarCenterNode={sessionStatsNode}
           className="p-0"
           onChange={handleEditorChange}
           onFocus={handleEditorFocus}

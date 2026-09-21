@@ -65,7 +65,7 @@ export function ChatPromptEditor({
   attachmentAction,
   betweenCancelAndSubmitAction,
   submitControl,
-  footerNode,
+  toolbarCenterNode,
   inputTestId,
   submitTestId,
   cancelTestId,
@@ -123,8 +123,8 @@ export function ChatPromptEditor({
   /** 行内编辑专用：固定插在取消与主提交之间的第二动作。 */
   betweenCancelAndSubmitAction?: ReactNode;
   submitControl?: ReactNode;
-  /** composer 卡片内底行（工具栏之下）居中节点，如会话统计胶囊。 */
-  footerNode?: ReactNode;
+  /** 工具栏行居中节点（左右控件簇之间），如会话统计胶囊。 */
+  toolbarCenterNode?: ReactNode;
   inputTestId?: string;
   submitTestId?: string;
   cancelTestId?: string;
@@ -413,6 +413,7 @@ export function ChatPromptEditor({
               ) : null}
             </div>
           </div>
+          {toolbarCenterNode}
           <div
             className="ml-auto flex shrink-0 items-center justify-end gap-1.5"
             data-composer-trailing-actions
@@ -451,7 +452,6 @@ export function ChatPromptEditor({
             )}
           </div>
         </div>
-        {footerNode}
       </div>
     </form>
   );
