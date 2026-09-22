@@ -104,10 +104,7 @@ function formatContextUsageSummary({
   )})`;
 }
 
-function formatContextCacheHitRateLabel(
-  hitRate: number | null | undefined,
-  locale: string,
-): string | null {
+function formatContextCacheHitRateLabel(hitRate: number | null | undefined): string | null {
   if (hitRate === null || hitRate === undefined || !Number.isFinite(hitRate)) {
     return null;
   }
@@ -115,10 +112,8 @@ function formatContextCacheHitRateLabel(
   // 自用 fork：不再用 78% 阈值隐藏低命中值——用户要求每一项都稳定可见，
   // 否则同一面板会随命中率高低“少一行”，看着像 bug。
 
-  return new Intl.NumberFormat(locale, {
-    maximumFractionDigits: 1,
-    style: "percent",
-  }).format(Math.max(0, hitRate));
+  // 固定一位小数（Intl percent 会把 95.0 打成 95%），与状态栏胶囊的精度完全一致。
+  return `${(Math.max(0, hitRate) * 100).toFixed(1)}%`;
 }
 
 function getBreakdownToneStyle(index: number): CSSProperties {
@@ -797,7 +792,7 @@ export function ChatContextUsage({
     );
   }, [intl, numberFormatter, renderableTaskUsage]);
   const cacheHitRateLabel = useMemo(() => {
-    return formatContextCacheHitRateLabel(renderableTaskUsage?.cache?.hitRate, locale);
+    return formatContextCacheHitRateLabel(renderableTaskUsage?.cache?.hitRate);
   }, [locale, renderableTaskUsage]);
   const breakdownSegments = useMemo(
     () =>
