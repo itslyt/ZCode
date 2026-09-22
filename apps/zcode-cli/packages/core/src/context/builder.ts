@@ -23,7 +23,6 @@ import { buildMemorySection } from "./sections/memory.js";
 import { buildDesktopContextSection } from "./sections/desktop.js";
 import {
   buildContextManagementSection,
-  buildDynamicBehaviorSection,
   buildOutputStyleSection,
   buildSessionGuidanceSection,
 } from "./dynamic-sections.js";
@@ -132,10 +131,6 @@ export class ContextBuilder {
         sections.push(buildDesktopContextSection());
       }
 
-      // behaviour part right after stable sp...
-      if (!isWorkflowActor) {
-        sections.push(buildDynamicBehaviorSection());
-      }
 
       // Session-specific guidance
       const sessionGuidanceSection = isWorkflowActor
