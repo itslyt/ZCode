@@ -109,7 +109,6 @@ const MAC_EDITOR_DEFS: EditorDef[] = [
   createMacEditorDef("rider", "Rider", ["Rider.app", "JetBrains Rider.app"], "rider"),
   createMacEditorDef("clion", "CLion", ["CLion.app"], "clion"),
   createMacEditorDef("rubymine", "RubyMine", ["RubyMine.app"], "rubymine"),
-  createMacEditorDef("datagrip", "DataGrip", ["DataGrip.app"], "datagrip"),
   // 终端（macOS 新版系统 Terminal 在 /System/Applications 下）
   createMacSystemAppDef("terminal", "Terminal", "/System/Applications/Utilities/Terminal.app"),
   createMacEditorDef("iterm2", "iTerm", ["iTerm.app"], null),

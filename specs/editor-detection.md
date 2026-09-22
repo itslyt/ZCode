@@ -22,6 +22,8 @@ DSH 的 `dsh-host-open-in-app` 对这两点的处理是：`applicationRoots = ['
 
 ## 2. 产品规则
 
+- 收录范围 = 代码编辑器、终端、文件管理器。数据库专用工具（DataGrip）不收录：它不是代码编辑器，
+  出现在「在本地打开」里没有意义（DSH 的目录同样没有它）。
 - 列表内容 = 本机真实存在（`existsSync` 通过）的候选应用；不存在的不进列表。
 - 列表顺序 = 目录表声明顺序；UI 侧只把文件管理器（`finder` / `qspace` / `qspace-pro` / `explorer`）提到最前，
   其余保持主进程返回顺序（`sortInstalledEditorsForOpenWith`）。
@@ -108,13 +110,14 @@ resolveEditorDefAppPath(def): string | null           // 候选里第一个 exis
 vscode   -> /Applications/Visual Studio Code.app
 idea     -> /Users/<user>/Applications/IntelliJ IDEA.app
 pycharm  -> /Users/<user>/Applications/PyCharm.app
-datagrip -> /Users/<user>/Applications/DataGrip.app
 ```
 
 真机（打包后 `ZCode Preview-3.14.0-mac-arm64` + CDP）：
 
 - `getInstalledEditors()` 返回 7 项，新增 `idea` / `pycharm` / `datagrip`，图标均解析成功。
 - 「选择打开方式」下拉实际渲染顺序：Finder、VS Code、IntelliJ IDEA、PyCharm、DataGrip、Terminal（选中）、iTerm。
+- 随后按 §2 移除 DataGrip，当前列表为 6 项：Finder、VS Code、IntelliJ IDEA、PyCharm、Terminal、iTerm。
+- 移除 DataGrip 后未重新做真机验证（产品决定，改动仅是从目录表删掉一行定义）。
 - 三个 `~/Applications` 下的 bundle 均通过 `open -Ra` 校验，`open -a` 降级链路可用。
 
 未执行：实际启动 IDE 打开 workspace（会拉起完整 IDE 进程），只验证到路径解析与 LaunchServices 解析成功。
