@@ -374,3 +374,58 @@ DSH 自己的实现也就 139-175 行，契约又几乎同构（Claude Code 风�
 
 唯一有意保留的差距：**Security 段**（拒绝破坏性/恶意请求、双用途工具需授权上下文）——用户明确要求删掉，
 ZCode 现在没有这条护栏。要恢复只是三行的事。
+
+## 16. 请求消息结构（实测）与精简
+
+一条真实请求（`~/.zcode/cli/rollout/model-io-*.jsonl`）的消息序列：
+
+| #   | 角色   | 内容                                                            | 长度（字符） |
+| --- | ------ | --------------------------------------------------------------- | ------------ |
+| 0   | system | `You are ZCode, an interactive coding agent`（`cli_prefix` 段） | 42           |
+| 1   | system | 人设正文（identity + Harness + Desktop Context）                | ~8 300       |
+| 2   | system | `# Environment` + `# Context management` + `gitStatus` 块       | 1 400~3 000  |
+| 3   | user   | `<system-reminder>` 包 `# currentDate`                          | ~305         |
+| 4   | user   | 用户输入                                                        | —            |
+
+两条精简（用户要求）：
+
+1. **去掉 gitStatus**：`env-info.ts` 不再输出 `gitStatus: ...` 前缀句和 `Status:` 块（即改动/未跟踪文件清单），
+   保留 `Current branch` / `Main branch` / `Git user`。原句自述是“会话开始时的快照、之后不更新”，
+   模型随时 `git status` 能拿到更新的结果；且它逐会话不同，让同 workspace 内不同会话的前缀无法共享缓存。
+2. **去掉 0 号 system 消息**：`cli_prefix` 段与人设首句是同一个身份（“你是 ZCode”），属于重复；
+   它单独成条的唯一作用是给 42 字符加一个 cache breakpoint。删除后请求变成 2 条 system 消息。
+   工作流子代理本来就不注入它（`isWorkflowActor` 分支），删除后不受影响。
+
+## 17. 缓存命中率：与 DSH 的实测对比
+
+口径（关键）：两个产品的 `inputTokens` 含义不同，直接比 total 会得出错误结论。
+
+- ZCode（AI SDK v5）：`inputTokens` = **总输入（含命中）**，`inputTokenDetails.cacheReadTokens` 是其中命中的子集。
+  证据：`raw_usage_json` 里 `totalTokens = inputTokens + outputTokens`，且 `cacheReadTokens` 单列（如 9 779 = 9 237 + 542）。
+- DSH（`dsh-token-usage-counter`）：`totalTokens = input + output + cacheRead`，即 `inputTokens` 只算未命中部分。
+
+实测（ZCode 取 `model_usage` 的 `query_source = main_turn`；DSH 取 `~/.dsh/settings.yaml` 累计）：
+
+| 指标             | ZCode     | DSH       |
+| ---------------- | --------- | --------- |
+| 请求数           | 1 368     | 7 312     |
+| 总输入（含命中） | 138.9M    | 1 131.6M  |
+| 命中             | 128.1M    | 1 089.4M  |
+| **命中率**       | **92.2%** | **96.3%** |
+| 单次未命中       | 7 918     | 5 770     |
+| 单次总输入       | 101 567   | 154 750   |
+
+ZCode 侧分布：命中 >90% 的请求 1 142 个（占 92.0% 的输入）；命中 0 的冷启动 143 个（占 10.5% 的请求，
+但只占 3.7% 的输入）；其余 83 个介于中间。命中率在所有 provider 上一致（GLM 48.4%、DeepSeek 48.8%、
+local 47.7~48.7%——按错误口径算都是 ~48%，按正确口径都是 ~94%），说明差异来自会话结构而非某家后端。
+
+差距拆解与优化方向：
+
+- 冷启动（10.5% 请求 / 3.7% token）：换新任务就会重读一遍静态前缀。前缀越小越便宜——工具面 132k→27.5k 字符
+  已经把这块降下来了。
+- 同 workspace 跨会话共享前缀：前缀里任何逐会话变化的字节（如 gitStatus）都会让缓存无法跨会话复用；
+  §16.1 已移除。
+- 单次未命中 7.9k vs DSH 5.8k：这才是真正的差距，未命中 = 本轮新增内容（用户输入 + 工具结果 + 助手输出）。
+  要再降只能减少工具结果体积/请求数，而不是继续改提示词。
+- 提示词侧已无可榨空间：静态前缀（工具 27.5k + 人设 7.9k + 环境 1.4k）全部落在命中区间内，
+  继续压缩只降低冷启动成本，不影响命中率。
