@@ -31,7 +31,6 @@ export type {
 export type ContextSource =
   | "identity" // Agent 基础描述
   | "env_info" // 环境信息 (cwd, platform, git repo boolean)
-  | "system_context" // git snapshot context
   | "skills" // 可用 skills
   | "tools" // 工具定义
   | "request_user_context" // request-level user context provider-visible 组合块

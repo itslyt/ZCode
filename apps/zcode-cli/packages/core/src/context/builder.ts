@@ -14,7 +14,7 @@ import type { ToolRegistry } from "../tool/registry.js";
 import { estimateTokens } from "./utils.js";
 import { buildIdentitySection } from "./sections/identity.js";
 import { buildWorkflowActorIdentitySection } from "./sections/workflow-actor.js";
-import { buildEnvInfoSection, buildGitSystemContextSection } from "./sections/env-info.js";
+import { buildEnvInfoSection } from "./sections/env-info.js";
 import { buildSkillsSection } from "./sections/skills.js";
 import { buildRequestUserContextSection } from "./sections/request-user-context.js";
 import { buildCurrentDateSection } from "./sections/current-date.js";
@@ -156,10 +156,8 @@ export class ContextBuilder {
       // Context Management
       sections.push(buildContextManagementSection());
 
-      const gitSystemContextSection = buildGitSystemContextSection(this.config.envInfo);
-      if (gitSystemContextSection) {
-        sections.push(gitSystemContextSection);
-      }
+      // 自用 fork：不再注入 git 段（Current branch / Main branch / Git user）。
+      // 用户自己 push / 开 PR，不需要这些分支信息引导模型去做远端操作；需要时模型可直接跑 git 命令。
     }
 
     // 4. Skills appear as a meta user system-reminder, matching provider block layout.
