@@ -126,3 +126,33 @@ persona 再压到 ~4.5k。
 `pnpm architecture:check --changed` 0 新增违规。`apps/zcode-cli` 下没有测试文件，也没有断言提示词文本的测试，
 故本次以「按 section dump 字符」为证（段就是拼接进请求的内容，结构未动）；**未做真机会话回归**
 （需真实模型调用），也未跑 `pnpm --dir apps/zcode-cli lint`（本机未安装 turbo）。
+
+## 9. 工具面才是真正的大头（实测一次真实请求）
+
+从 `~/.zcode/cli/debug/model-io-sess_88d90c26-*.jsonl` 的 `request` 读到的实际工具面：
+**32 个工具、132 456 字符**（描述 + input schema）。按族分类：
+
+| 族         | 工具                                                                                                                                                                                                              | 字符        | 对编码场景       |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ---------------- |
+| 动态工作流 | CreateWorkflow 33 995 / SaveWorkflow 26 011 / EvalWorkflowSnippet 10 710 / AmendWorkflow 7 105 / ListWorkflowRuns 2 879 / GetWorkflowRun 2 810 / ResumeWorkflowRun / ResolveWorkflowQuestion / ListSavedWorkflows | **~88 000** | 无用             |
+| 定时任务   | CronCreate 6 143 / CronUpdate 3 883 / CronDelete / CronList                                                                                                                                                       | **~11 000** | 无用             |
+| 闲时任务   | OffPeakCreate 3 652 / OffPeakList                                                                                                                                                                                 | **~4 100**  | 无用             |
+| 计划模式   | EnterPlanMode 4 328 / ExitPlanMode                                                                                                                                                                                | ~7 000      | 编码流程，建议留 |
+| 委派/协调  | Task 2 297 / Agent 2 190 / TaskOutput 1 051 / SendMessage 511 / TaskStop 205 / ReadSessionContext 160 / ListModels 762                                                                                            | ~7 200      | 编码可用         |
+| 编码核心   | AskUserQuestion 1 788 / Skill 1 317 / Bash 1 050 / Read 786 / Grep 479 / TodoWrite 372 / WebFetch 376 / WebSearch 314 / Edit 362 / Write 242 / Glob 142 / TodoRead 36                                             | ~7 300      | 必需             |
+
+工作流 + 定时 + 闲时合计 **~103 000 字符（占工具面 78%）**，是系统提示词全部静态段（7 509）的 13.7 倍。
+
+### 关闭路径（逐个确认过）
+
+| 族         | 门                                                                                                                                                                       | 能不能不改代码关掉                                                                             |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| 动态工作流 | Host 下发 `dynamicWorkflow.mode`（`dynamic-workflow-policy.ts`）；来源是 coding-plan 订阅特征位（`useDynamicWorkflowAvailabilityLoader(codingPlanSubscriptionService)`） | **不能**：CLI 刻意“只缓存结论，从不读 feature key 或本地覆盖环境变量” → 需在 host 侧强制 false |
+| 定时任务   | `includeAutomation = Boolean(deps.automationPort)`；protocol 会话在 `server-operations.ts:3462` **无条件**创建 automationPort                                            | **不能**：改一处调用点（不传 / 按配置门控）                                                    |
+| 闲时任务   | `offPeakPort` 由 host 的 `offPeakToolEnabled` 注入                                                                                                                       | 看 host 是否已关；实测它出现在请求里 → 当前是开的                                              |
+| 任意子集   | 会话级 `toolAllowlist`（`server-operations.ts:3434` 已支持从协议参数读）                                                                                                 | **可以**：给会话传编码白名单，一处配置锁全部族；代价是要有客户端注入点                         |
+
+### 结论
+
+想“只留编码”，优先级应是：**工具面（~103k）>> persona 再压（~1k）> git recent commits（~0.4-2k）> 安全 IMPORTANT 行（0.56k）**。
+工具面这一项一处改动就能拿掉 78%，远大于提示词侧任何单项。
