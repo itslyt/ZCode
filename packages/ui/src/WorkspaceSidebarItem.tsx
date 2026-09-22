@@ -972,8 +972,8 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
                               event.preventDefault();
                               event.stopPropagation();
                             }}
-                            onSelect={(event) => {
-                              event.preventDefault();
+                            onSelect={() => {
+                              // 不阻止默认行为：Radix 需要关闭菜单，否则菜单会和重命名对话框同时留在屏幕上。
                               handleStartWorkspaceRename();
                             }}
                           >
