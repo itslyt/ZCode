@@ -132,14 +132,14 @@ persona 再压到 ~4.5k。
 从 `~/.zcode/cli/debug/model-io-sess_88d90c26-*.jsonl` 的 `request` 读到的实际工具面：
 **32 个工具、132 456 字符**（描述 + input schema）。按族分类：
 
-| 族         | 工具                                                                                                                                                                                                              | 字符        | 对编码场景       |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ---------------- |
-| 动态工作流 | CreateWorkflow 33 995 / SaveWorkflow 26 011 / EvalWorkflowSnippet 10 710 / AmendWorkflow 7 105 / ListWorkflowRuns 2 879 / GetWorkflowRun 2 810 / ResumeWorkflowRun / ResolveWorkflowQuestion / ListSavedWorkflows | **~88 000** | 无用             |
-| 定时任务   | CronCreate 6 143 / CronUpdate 3 883 / CronDelete / CronList                                                                                                                                                       | **~11 000** | 无用             |
-| 闲时任务   | OffPeakCreate 3 652 / OffPeakList                                                                                                                                                                                 | **~4 100**  | 无用             |
-| 计划模式   | EnterPlanMode 4 328 / ExitPlanMode                                                                                                                                                                                | ~7 000      | 编码流程，建议留 |
-| 委派/协调  | Task 2 297 / Agent 2 190 / TaskOutput 1 051 / SendMessage 511 / TaskStop 205 / ReadSessionContext 160 / ListModels 762                                                                                            | ~7 200      | 编码可用         |
-| 编码核心   | AskUserQuestion 1 788 / Skill 1 317 / Bash 1 050 / Read 786 / Grep 479 / TodoWrite 372 / WebFetch 376 / WebSearch 314 / Edit 362 / Write 242 / Glob 142 / TodoRead 36                                             | ~7 300      | 必需             |
+| 族         | 工具                                                                                                                                                                                                              | 字符        | 对编码场景    |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------------- |
+| 动态工作流 | CreateWorkflow 33 995 / SaveWorkflow 26 011 / EvalWorkflowSnippet 10 710 / AmendWorkflow 7 105 / ListWorkflowRuns 2 879 / GetWorkflowRun 2 810 / ResumeWorkflowRun / ResolveWorkflowQuestion / ListSavedWorkflows | **~88 000** | 无用          |
+| 定时任务   | CronCreate 6 143 / CronUpdate 3 883 / CronDelete / CronList                                                                                                                                                       | **~11 000** | 无用          |
+| 闲时任务   | OffPeakCreate 3 652 / OffPeakList                                                                                                                                                                                 | **~4 100**  | 无用          |
+| 计划模式   | EnterPlanMode 4 328 / ExitPlanMode 2 777                                                                                                                                                                          | **7 105**   | 实测 0 次调用 |
+| 委派/协调  | Agent 2 834 / TaskOutput 1 562 / ReadSessionContext 1 405 / SendMessage 1 119 / ListModels 954 / TaskStop 553                                                                                                     | **8 427**   | 实测 3 次调用 |
+| 编码核心   | AskUserQuestion 4 913 / Bash 2 499 / Skill 1 729 / Read 1 435 / TodoWrite 1 133 / Edit 980 / WebFetch 761 / Write 655 / TodoRead 221                                                                              | **14 326**  | 实测 1 232 次 |
 
 工作流 + 定时 + 闲时合计 **~103 000 字符（占工具面 78%）**，是系统提示词全部静态段（7 509）的 13.7 倍。
 
@@ -194,3 +194,41 @@ TodoRead/TodoWrite/WebFetch/WebSearch/Skill/Agent/Task/TaskOutput/TaskStop/AskUs
 
 验证：`pnpm typecheck` 0 error、`pnpm lint` 0 error（基线 74 warnings）、`pnpm fmt:check` 通过、
 `pnpm architecture:check --changed` 0 新增违规。真机会话回归仍未做（需重打包 + 真实模型调用）。
+
+## 11. 使用频率证据与下一步取舍
+
+数据源：真实 session DB `~/.zcode/cli/db/db.sqlite` 的 `tool_usage` 表，71 个 session、1257 次工具调用。
+
+| 工具      | 调用次数 | 工具                                                                                                       | 调用次数 |
+| --------- | -------- | ---------------------------------------------------------------------------------------------------------- | -------- |
+| Bash      | 797      | WebFetch                                                                                                   | 6        |
+| Edit      | 185      | WebSearch                                                                                                  | 2        |
+| Read      | 169      | TaskOutput                                                                                                 | 2        |
+| TodoWrite | 54       | TodoRead / TaskStop / ListSavedWorkflows / CronList / AskUserQuestion                                      | 各 1     |
+| Write     | 27       | EnterPlanMode / ExitPlanMode / Agent / SendMessage / ReadSessionContext / ListModels / Cron 其余 / OffPeak | 0        |
+| Skill     | 10       |                                                                                                            |          |
+
+两点修正（之前的表有两处不准，以本节为准）：
+
+1. 真实 desktop 会话里 **Task / Grep / Glob / WebSearch 根本没注册**：前三个被 embedded-search 开关接管，
+   `Task` 由配置门控。所以“编码核心 12 个”实际是 **9 个**，Bash/Edit/Read 承担了 98% 的调用（1232/1257）。
+2. 真实请求里的 schema 比内置 metadata 大得多（AskUserQuestion 1788→4913、CronCreate 430→6143），
+   因为注册时描述会被策略/协议层加长。**只有真实请求的字符数可以当依据**。
+
+### 下一步可选（未做，等用户决定）
+
+| 取舍                     | 省     | 依据                                                |
+| ------------------------ | ------ | --------------------------------------------------- |
+| 不注册计划模式 2 个工具  | 7 105  | 71 个 session 里 0 次调用                           |
+| 不注册委派/协调 6 个工具 | 8 427  | 共 3 次调用；若要保留子代理则只留 Agent             |
+| 两者都做                 | 15 532 | 工具面 18 900 → **~3 400**，相对原始 132 456 降 97% |
+
+### 与 DSH 对比
+
+DSH `code-max-omni` 是 **18 个工具**（bash / read / write / edit / str_replace_editor / glob / grep /
+todo_write / job_list / job_output / job_kill / skill / subagent / ask_user_question / exit_plan_mode /
+read_image / undo_last_edit / web_fetch），且**刻意不含** workflow / cron / off-peak / goals / agent-control /
+subagent_fork / PTY。ZCode 改前 32 个，改后 18 个，数量与 DSH 持平。
+
+DSH 的 schema 字节数无法测量：DSH 不落请求体，session 文件是 zstd 且不含 tools 数组（本机也没有 zstd 命令）。
+所以这一项只能做数量与结构的对比，字节对比是估算。
