@@ -76,10 +76,42 @@ export function resolveRuntimeDynamicWorkflowToolsIncluded(config: AgentRuntimeC
   return config.dynamicWorkflowEnabled !== false;
 }
 
+const CODING_ONLY_TOOLS = [
+  "Read",
+  "Write",
+  "Edit",
+  "Bash",
+  "Glob",
+  "Grep",
+  "TodoRead",
+  "TodoWrite",
+  "WebFetch",
+  "WebSearch",
+  "Skill",
+  "Agent",
+  "Task",
+  "TaskOutput",
+  "TaskStop",
+  "AskUserQuestion",
+  "EnterPlanMode",
+  "ExitPlanMode",
+] as const;
+
+/**
+ * 本 fork 的默认工具面：只保留编码场景用得到的工具。
+ *
+ * 根因：实测一次真实请求是 32 个工具 / 132 456 字符 schema，其中动态工作流（~88k）、
+ * 定时任务（~11k）、闲时任务（~4.1k）三族占 78%，而它们与编码无关。工具定义保留在
+ * 代码里（随时可恢复），只是不注册进内置工具表。
+ *
+ * 只影响内置工具：MCP / 插件工具走各自的注册路径，不受这份名单影响；
+ * 会话显式传入的 `toolAllowlist` 仍然优先（用户在会话级可以要回完整工具面）。
+ */
 export function resolveBuiltInToolAllowlist(
   config: AgentRuntimeConfig,
 ): readonly string[] | undefined {
-  const normalizedAllowlist = normalizeBuiltInToolAllowlist(config.toolAllowlist);
+  const normalizedAllowlist =
+    normalizeBuiltInToolAllowlist(config.toolAllowlist) ?? CODING_ONLY_TOOLS;
 
   if (config.toolset !== "explore") {
     return appendChildControlTool(config, normalizedAllowlist);

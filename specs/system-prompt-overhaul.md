@@ -156,3 +156,41 @@ persona 再压到 ~4.5k。
 
 想“只留编码”，优先级应是：**工具面（~103k）>> persona 再压（~1k）> git recent commits（~0.4-2k）> 安全 IMPORTANT 行（0.56k）**。
 工具面这一项一处改动就能拿掉 78%，远大于提示词侧任何单项。
+
+## 10. 实施记录（只注册编码工具 + 去掉非编码提示词）
+
+按用户决定执行两件事：提示词去掉安全 IMPORTANT 行与 git 提交记录、合并重复的人格条目；
+工具侧**不删定义**，改用编码白名单让工作流/定时/闲时三族不注册。
+
+### 提示词
+
+| 项                | 改动                                                                                                                                            |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| 安全 IMPORTANT 行 | 删 `SECURITY_NOTICE` 与 `buildSecurityNotice()`（560 字符），`workflow-actor.ts` 的引用一并去掉                                                 |
+| git 提交记录      | `env-info.ts` 删 `Recent commits` 行与 `formatRecentCommits()`（保留 branch/status）。探针仍产出 `recentCommits`，只是提示词不再渲染            |
+| persona 去重      | 合并「Default to short answers」+「Match the response to the question」；「Finish the whole task」+「Stop short of actions beyond the request」 |
+
+identity 段 6656 → **6132**（2044 tokens）；env_info 含 3 条提交时由 ~700 降到 **197**。
+
+### 工具面（白名单）
+
+`core/src/runtime/helpers/tool-allowlist.ts` 新增 `CODING_ONLY_TOOLS`（18 个：Read/Write/Edit/Bash/Glob/Grep/
+TodoRead/TodoWrite/WebFetch/WebSearch/Skill/Agent/Task/TaskOutput/TaskStop/AskUserQuestion/EnterPlanMode/ExitPlanMode），
+作为 `config.toolAllowlist` 缺席时的默认值。因为两个注册入口（首次装配与分支刷新）都读这个 helper，一处改动全覆盖。
+
+- 只影响**内置**工具：MCP 与插件工具走各自注册路径，不受影响。
+- 会话显式传入 `toolAllowlist` 仍然优先（可随时要回完整工具面）。
+- 工具定义全部保留在代码里，恢复 = 删掉 `?? CODING_ONLY_TOOLS` 这一处默认值。
+
+实测（`registerBuiltInTools` 实跑，含 Agent/Task 的实际会话值）：
+
+| 指标             | 改前    | 改后                                                                            |
+| ---------------- | ------- | ------------------------------------------------------------------------------- |
+| 注册工具数       | 32      | 18                                                                              |
+| 工具 schema 字符 | 132 456 | ~18 900（注册表实跑 16 个工具为 14 438，加上被 `includeAgent` 门的 Agent/Task） |
+
+被移除的族：动态工作流 9 个（~88k）、定时任务 4 个（~11k）、闲时任务 2 个（~4.1k），
+以及 ListModels / SendMessage / ReadSessionContext / js。
+
+验证：`pnpm typecheck` 0 error、`pnpm lint` 0 error（基线 74 warnings）、`pnpm fmt:check` 通过、
+`pnpm architecture:check --changed` 0 新增违规。真机会话回归仍未做（需重打包 + 真实模型调用）。

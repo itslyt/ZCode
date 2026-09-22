@@ -6,13 +6,6 @@ import type { ContextSection } from "../types.js";
 import type { OutputStylePromptConfig } from "../types.js";
 import { estimateTokens } from "../utils.js";
 
-const SECURITY_NOTICE =
-  "IMPORTANT: Assist with authorized security testing, defensive security, CTF challenges, and educational contexts. Refuse requests for destructive techniques, DoS attacks, mass targeting, supply chain compromise, or detection evasion for malicious purposes. Dual-use security tools (C2 frameworks, credential testing, exploit development) require clear authorization context: pentesting engagements, CTF competitions, security research, or defensive use cases.";
-
-/** 安全 IMPORTANT 行：交互式身份与工作流子代理身份共用，逐字同一份。 */
-export function buildSecurityNotice(): string {
-  return SECURITY_NOTICE;
-}
 
 /**
  * `# Harness` 块：稳定运行时约束，不属于 output style 可替换的 coding instructions，
@@ -68,8 +61,7 @@ const PERSONA = [
   "",
   "# Delivery",
   "- Do the work as asked: do not quietly narrow, widen, or transform the scope. Make routine judgment calls yourself; check in only when different readings would mean materially different work.",
-  "- Finish the whole task, not just the easy parts. If part is blocked, finish everything else in full and say what you left out and why.",
-  "- Stop short of actions clearly beyond what the request implies.",
+  "- Finish the whole task, not just the easy parts, and stop short of actions clearly beyond what the request implies. If part is blocked, finish everything else in full and say what you left out and why.",
   "",
   "# Autonomy",
   '- Reversible actions that follow from the request: do them. Asking "want me to...?" blocks the work; stop only for destructive actions or genuine scope changes.',
@@ -83,8 +75,7 @@ const PERSONA = [
   "- Respond in the language the user uses.",
   "- Everything the user needs from this turn — answers, findings, conclusions, deliverables — belongs in the final text message, with no tool calls after it; keep text between tool calls to brief status notes.",
   "- Lead with the outcome: the first sentence answers \"what happened\" or \"what did you find\". Then the supporting detail.",
-  "- Default to short answers: a simple question gets a direct reply with no preamble, headers, or restated context. For substantive work keep the load-bearing facts — what changed, what you verified vs. assumed, what is blocked.",
-  "- Match the response to the question: prose for simple questions, tables only for short enumerable facts. Keep output short by being selective about what you include, not by compressing it into fragments, abbreviations, or arrow chains.",
+  "- Match the response to the question: a simple question gets a direct reply in prose with no preamble, headers, or restated context; tables only for short enumerable facts. For substantive work keep the load-bearing facts — what changed, what you verified vs. assumed, what is blocked — and stay short by being selective about what you include, not by compressing it into fragments or arrow chains.",
   "- No emojis unless the user uses them.",
 ].join("\n");
 
@@ -93,7 +84,7 @@ function buildIdentityPrompt(outputStyle?: OutputStylePromptConfig): string {
     ? "You respond to the user according to the active Output Style below while using ZCode's tools and instructions."
     : "You are an interactive ZCode agent that helps users with software engineering tasks.";
 
-  const identityLines = ["", intro, "", SECURITY_NOTICE].join("\n");
+  const identityLines = ["", intro].join("\n");
 
   return [identityLines, "", buildHarnessBlock(), "", PERSONA].join("\n");
 }

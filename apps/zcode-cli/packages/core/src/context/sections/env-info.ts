@@ -24,7 +24,6 @@ const CURRENT_BRANCH_LABEL = "Current branch";
 const MAIN_BRANCH_LABEL = "Main branch (you will usually use this for PRs)";
 const GIT_USER_LABEL = "Git user";
 const STATUS_LABEL = "Status";
-const RECENT_COMMITS_LABEL = "Recent commits";
 const CLEAN_GIT_STATUS = "(clean)";
 const DIRTY_GIT_STATUS = "(dirty)";
 const UNKNOWN_GIT_STATUS = "(unknown)";
@@ -96,7 +95,6 @@ function buildGitSystemContextContent(info: EnvInfo): string {
   }
 
   lines.push("", `${STATUS_LABEL}:\n${formatGitStatus(info)}`);
-  lines.push("", `${RECENT_COMMITS_LABEL}:\n${formatRecentCommits(info)}`);
 
   return lines.join("\n");
 }
@@ -119,11 +117,4 @@ function formatGitStatus(info: EnvInfo): string {
     return CLEAN_GIT_STATUS;
   }
   return UNKNOWN_GIT_STATUS;
-}
-
-function formatRecentCommits(info: EnvInfo): string {
-  if (info.recentCommits && info.recentCommits.length > 0) {
-    return info.recentCommits.join("\n");
-  }
-  return "";
 }
