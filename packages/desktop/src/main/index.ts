@@ -859,6 +859,9 @@ let startupOpenWorkspaceRequest: ExplicitStartupWorkspaceRequest | null =
 
 let forceUpdateMainWindowCreationBlocked = false;
 
+/** 自用 fork 的自动更新开关：关掉以免官方更新覆盖本 fork 的自建包。 */
+const AUTO_UPDATE_ENABLED = false;
+
 function resolveExternalWorkspaceConfirmationCopy() {
   const effectiveLocale =
     currentApplicationLocale === DEFAULT_LOCALE && app.isReady()
@@ -1939,11 +1942,10 @@ app.whenReady().then(async () => {
   await hydratePendingPostUpdateReleaseNotes(mainSettingService);
   logWindowsBundledRuntimeIntegrityDiagnostic();
 
-  // 启动自动更新检查（后台执行，不阻塞主界面）
-  // Preview 身份无论连接哪个后端都不自动更新：stable feed 上只分发正式 ZCode 安装包，
-  // 不向 Preview 渠道提供更新。
+  // 自用 fork：完全关闭自动更新检查。官方更新会覆盖本 fork 的自建包（提示词、工具面、hook 等改动全部丢失），
+  // 所以这里不再按产品渠道判断，而是硬关闭；恢复只需把 AUTO_UPDATE_ENABLED 改回 true。
   void initAutoUpdater({
-    enabled: ZCODE_PRODUCT_FLAVOR === "production",
+    enabled: AUTO_UPDATE_ENABLED,
     onBeforeQuitAndInstall: async () => {
       notifyStabilityLifecycle("update_install");
       await prepareAppQuit("auto-update quitAndInstall", "update-install");
@@ -2186,7 +2188,9 @@ app.whenReady().then(async () => {
   // gate 照常生效，对真实用户零影响。
   const skipForceUpdateForLocalDevRuntime = !app.isPackaged;
   const forceUpdateGuardResult =
-    ZCODE_PRODUCT_FLAVOR === "production" && !skipForceUpdateForLocalDevRuntime
+    AUTO_UPDATE_ENABLED &&
+    ZCODE_PRODUCT_FLAVOR === "production" &&
+    !skipForceUpdateForLocalDevRuntime
       ? await maybeBlockStartupForForceUpdate({
           locale: currentApplicationLocale,
           logger,
