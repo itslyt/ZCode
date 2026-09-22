@@ -54,3 +54,23 @@ UI 侧移除 `DesktopTopOverlay` 的 `UpdateStatusButton` 与帮助菜单里的�
 4. 新项目新建任务，输入框权限显示"完全访问"。
 5. 空态无四个建议胶囊。
 6. `pnpm typecheck` / `pnpm lint` / `pnpm fmt:check` / `pnpm architecture:check --changed` 全绿。
+
+## 实测记录（打包产物 + CDP 核验）
+
+产物：`packages/desktop/dist/ZCode Preview-3.14.0-mac-arm64.dmg`（重建 agent 包后打包）。
+
+| 项           | 验证方式                                                                                                                                  | 结果       |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| 更新徽标     | 打包 App 的 DOM `innerText` 查“更新”                                                                                                      | 无         |
+| 更新检测     | 读打包后 agent 包：`initAutoUpdater` 只读 `AUTO_UPDATE_ENABLED`（false）；`autoUpdater.ts:59` 注释确认 `enabled: false` 只清轮询并 return | 不检查     |
+| 设置里的引导 | 打开设置读 nav 项（常规/外观/模型设置/…/使用统计）                                                                                        | 无“引导”   |
+| 侧边栏自动化 | DOM 查“自动化” + `data-testid` 含 automation 的元素                                                                                       | 均无       |
+| 默认权限     | 新建任务读 `chat-mode-select-trigger` 文案                                                                                                | “完全访问” |
+| 四个建议胶囊 | DOM 查四个文案与 suggest 相关 testid                                                                                                      | 均无       |
+
+源码级验证（DOM 未能覆盖）：帮助菜单的“检查更新”项已从 `WorkspaceHelpMenuButton` 移除（DOM 检查时菜单未展开，未能证实；该 JSX 已删、typecheck 通过）。
+
+命令：`pnpm typecheck` 0 error、`pnpm lint` 74 warnings/0 errors（基线一致）、`pnpm fmt:check` 通过、
+`pnpm architecture:check --changed` 0 新增违规。
+
+副作用：验证时在真实 session DB 里留下 `/tmp/zcode-hook-test`（5 个）与 `/tmp/zcode-mode-test`（1 个）测试会话，未自行删除，可在 App 里删。
