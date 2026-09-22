@@ -1,4 +1,3 @@
-import { isRemoteWorkspaceIdentity } from "@zcode/shared";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button.js";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog.js";
@@ -7,11 +6,10 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
 import { useTabStore } from "@/store/TabStoreProvider.js";
 import { isWorkspaceTab } from "@/store/tabStore.js";
+import { resolveTaskMoveBlockedReason } from "@/lib/taskMoveEligibility.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 import { useTaskMoveToProjectStore } from "@/store/taskMoveToProjectStore.js";
 import { useWorkspaceDisplayNameStore } from "@/store/workspaceDisplayNameStore.js";
-
-const RUNNING_RUNTIME_STATUSES = new Set(["creating", "restoring", "streaming"]);
 
 function resolveWorkspaceKey(workspacePath: string, workspaceIdentity?: string | null): string {
   return workspaceIdentity?.trim() || workspacePath;
@@ -42,21 +40,12 @@ export function TaskMoveToProjectDialog() {
       return null;
     }
     const task = request.task;
-    const sourceIdentity = task.workspaceIdentity?.trim();
-    if (sourceIdentity && isRemoteWorkspaceIdentity(sourceIdentity)) {
-      return "taskList.moveToProjectRemoteBlocked";
-    }
-    const runtimeStatus = sourceWorkspaceState?.taskRuntimeByTaskId[task.taskId]?.status;
-    if (
-      task.status === "running" ||
-      (runtimeStatus && RUNNING_RUNTIME_STATUSES.has(runtimeStatus))
-    ) {
-      return "taskList.moveToProjectRunningBlocked";
-    }
-    if (sourceWorkspaceState?.activeTaskId === task.taskId) {
-      return "taskList.moveToProjectOpenBlocked";
-    }
-    return null;
+    return resolveTaskMoveBlockedReason({
+      task,
+      taskId: task.taskId,
+      runtimeStatus: sourceWorkspaceState?.taskRuntimeByTaskId[task.taskId]?.status,
+      activeTaskId: sourceWorkspaceState?.activeTaskId,
+    });
   }, [request, sourceWorkspaceState]);
 
   const candidates = useMemo(() => {
