@@ -5,6 +5,7 @@ import { formatCompactTokenNumber } from "@/lib/tokenNumberFormat.js";
 import {
   buildTurnStatsView,
   formatSessionStatsDuration,
+  formatSessionStatsPercent,
   formatSessionStatsTokenCount,
 } from "@/v4/sessionStatsView.js";
 import { useTurnStatsMap } from "@/v4/turnStatsContext.js";
@@ -27,7 +28,8 @@ export function TurnStatsCapsules({ turnId }: { turnId: string }) {
   const turn = useTurnStatsMap()[turnId];
   if (!turn) return null;
   const view = buildTurnStatsView(turn);
-  const cacheHitPercent = view.cacheHitRate === null ? null : Math.round(view.cacheHitRate * 100);
+  const cacheHitPercent =
+    view.cacheHitRate === null ? null : formatSessionStatsPercent(view.cacheHitRate);
 
   return (
     <span className="flex items-center gap-1.5" data-testid="turn-stats-capsules">

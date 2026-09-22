@@ -485,6 +485,9 @@ export const zcodeContextUsageBreakdownItemSchema = z
   .object({
     source: zcodeContextUsageBreakdownSourceSchema,
     chars: z.number().int().nonnegative(),
+    // 估算 token（zcode.estimateTokens.v1）。旧会话持久化的快照没有该字段，因此可选；
+    // 面板在缺字段时回退成只显示占比。
+    tokens: z.number().int().nonnegative().optional(),
   })
   .strict();
 export type ZCodeContextUsageBreakdownItem = z.infer<typeof zcodeContextUsageBreakdownItemSchema>;

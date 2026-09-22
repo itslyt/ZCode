@@ -23,3 +23,19 @@ export function formatModelContextWindowLabel(contextWindow: number, _locale = "
   // 模型列表的容量 badge 是技术规格，不应随中文 locale 变成“万/亿”。
   return formatCompactTokenNumber("en-US", contextWindow);
 }
+
+/**
+ * 固定 K 单位（不随 locale 变万/亿）：上下文容量面板要跟 provider 的技术口径对齐，
+ * “1.1万” 这种本地化读法在该面板里难和 token 数对账。保留一位小数。
+ */
+export function formatTokenCountK(value: number, maximumFractionDigits = 1): string {
+  if (!Number.isFinite(value)) {
+    return "";
+  }
+
+  if (Math.abs(value) < 1_000) {
+    return String(Math.round(value));
+  }
+
+  return `${(value / 1_000).toFixed(maximumFractionDigits).replace(/\.0+$/, "")}K`;
+}

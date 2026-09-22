@@ -60,6 +60,11 @@ export function formatSessionStatsTokenCount(locale: string, value: number): str
   return new Intl.NumberFormat(locale).format(value);
 }
 
+/** 缓存命中率统一展示一位小数：状态栏胶囊与上下文面板必须同口径同精度。 */
+export function formatSessionStatsPercent(rate: number): string {
+  return (Math.max(0, rate) * 100).toFixed(1);
+}
+
 function trimTrailingZero(text: string): string {
   return text.endsWith(".0") ? text.slice(0, -2) : text;
 }

@@ -808,6 +808,8 @@ export type ContextUsageBreakdownSource =
 export interface ContextUsageBreakdownItem {
   source: ContextUsageBreakdownSource;
   chars: number;
+  /** 估算 token（zcode.estimateTokens.v1），供上下文面板展示分项占用。 */
+  tokens: number;
 }
 
 export interface ModelErrorPayload {

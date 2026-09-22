@@ -53,7 +53,7 @@ import {
 } from "@/chat-input-toolbar/StartPlanContextBalance.js";
 import { runContextPanelActionWithClose } from "@/chat-input-toolbar/contextPanelAction.js";
 import { coordinateCodingPlanQuotaResetAutoPlay } from "@/chat-input-toolbar/codingPlanQuotaResetAutoPlay.js";
-import { formatCompactTokenNumber } from "@/lib/tokenNumberFormat.js";
+import { formatTokenCountK } from "@/lib/tokenNumberFormat.js";
 import {
   CONTEXT_QUOTA_RESET_URGENT_SECONDS,
   ContextQuotaResetOpportunityReminderContent,
@@ -70,6 +70,8 @@ interface ContextUsageBreakdownSegment {
   chars: number;
   percent: number;
   source: ContextUsageBreakdownSource;
+  /** 估算 token；旧快照缺该字段时为 0，此时只展示占比。 */
+  tokens: number;
 }
 
 const CONTEXT_PROGRESS_TONE_COLORS = [
@@ -80,15 +82,6 @@ const CONTEXT_PROGRESS_TONE_COLORS = [
   "color-mix(in oklab, var(--color-usage-chart-1) 28%, var(--color-surface))",
 ] as const;
 const PERCENT_MAX = 100;
-const CACHE_HIT_RATE_DISPLAY_THRESHOLD = 0.78;
-
-function formatContextUsageTokenCount(
-  value: number,
-  locale: string,
-  options: { maximumFractionDigits?: number } = {},
-): string {
-  return formatCompactTokenNumber(locale, value, options);
-}
 
 function formatContextUsageSummary({
   locale,
@@ -105,29 +98,22 @@ function formatContextUsageSummary({
     maximumFractionDigits: 1,
     style: "percent",
   });
-  return `${formatContextUsageTokenCount(used, locale)}/${formatContextUsageTokenCount(
-    size,
-    locale,
-    {
-      maximumFractionDigits: 0,
-    },
-  )} (${percentageFormatter.format(percent)})`;
+  // 自用 fork：容量单位固定 K（跟 DSH / provider 技术口径一致），不再随中文 locale 变“万”。
+  return `${formatTokenCountK(used)} / ${formatTokenCountK(size, 0)} (${percentageFormatter.format(
+    percent,
+  )})`;
 }
 
 function formatContextCacheHitRateLabel(
   hitRate: number | null | undefined,
   locale: string,
-  options: { showBelowThreshold?: boolean } = {},
 ): string | null {
   if (hitRate === null || hitRate === undefined || !Number.isFinite(hitRate)) {
     return null;
   }
 
-  // 生产面板只露出明显缓存收益，避免低命中率分散对上下文容量的注意力；
-  // 开发环境需要观察 provider 的真实低命中值，因此允许绕过 78% 展示阈值。
-  if (!options.showBelowThreshold && hitRate < CACHE_HIT_RATE_DISPLAY_THRESHOLD) {
-    return null;
-  }
+  // 自用 fork：不再用 78% 阈值隐藏低命中值——用户要求每一项都稳定可见，
+  // 否则同一面板会随命中率高低“少一行”，看着像 bug。
 
   return new Intl.NumberFormat(locale, {
     maximumFractionDigits: 1,
@@ -167,11 +153,13 @@ function buildContextUsageBreakdownSegments(
   breakdown: readonly ZCodeContextUsageBreakdownItem[] | undefined,
 ): ContextUsageBreakdownSegment[] {
   const charsBySource = new Map<ContextUsageBreakdownSource, number>();
+  const tokensBySource = new Map<ContextUsageBreakdownSource, number>();
   for (const item of breakdown ?? []) {
     if (!Number.isFinite(item.chars) || item.chars <= 0) {
       continue;
     }
     charsBySource.set(item.source, (charsBySource.get(item.source) ?? 0) + item.chars);
+    tokensBySource.set(item.source, (tokensBySource.get(item.source) ?? 0) + (item.tokens ?? 0));
   }
 
   const totalChars = [...charsBySource.values()].reduce((sum, chars) => sum + chars, 0);
@@ -179,14 +167,24 @@ function buildContextUsageBreakdownSegments(
     return [];
   }
 
+  // 占比与分项 K 必须同源，否则两个数字对不上：新快照有估算 token 时按 token 算占比，
+  // 旧快照只有 chars 时退回按字符算占比（此时不显示分项 K）。
+  const totalTokens = [...tokensBySource.values()].reduce((sum, tokens) => sum + tokens, 0);
+  const useTokens = totalTokens > 0;
+
   return [...charsBySource.entries()]
-    .map(([source, chars]) => ({
-      chars,
-      percent: chars / totalChars,
-      source,
-    }))
+    .map(([source, chars]) => {
+      const tokens = tokensBySource.get(source) ?? 0;
+      return {
+        chars,
+        percent: useTokens ? tokens / totalTokens : chars / totalChars,
+        source,
+        tokens,
+      };
+    })
     .sort(
       (left, right) =>
+        right.tokens - left.tokens ||
         right.chars - left.chars ||
         BREAKDOWN_SOURCE_ORDER[left.source] - BREAKDOWN_SOURCE_ORDER[right.source],
     );
@@ -794,9 +792,7 @@ export function ChatContextUsage({
     );
   }, [intl, numberFormatter, renderableTaskUsage]);
   const cacheHitRateLabel = useMemo(() => {
-    return formatContextCacheHitRateLabel(renderableTaskUsage?.cache?.hitRate, locale, {
-      showBelowThreshold: import.meta.env.DEV,
-    });
+    return formatContextCacheHitRateLabel(renderableTaskUsage?.cache?.hitRate, locale);
   }, [locale, renderableTaskUsage]);
   const breakdownSegments = useMemo(
     () => buildContextUsageBreakdownSegments(renderableTaskUsage?.breakdown),
@@ -958,9 +954,14 @@ export function ChatContextUsage({
                             id: BREAKDOWN_SOURCE_LABEL_ID[segment.source],
                           })}
                         </span>
-                        {/* breakdown 行只展示占比，分项 token 数会和顶部总量口径混在一起造成误读。*/}
-                        <span className="ml-auto min-w-10 shrink-0 text-right font-mono text-ui-sm tabular-nums text-foreground">
-                          {percentageFormatter.format(segment.percent)}
+                        {/* 占比与分项 K 同源（都按估算 token），括号里的数值便于和 provider 口径对账。 */}
+                        <span className="ml-auto flex min-w-10 shrink-0 items-baseline justify-end gap-1.5 text-right font-mono text-ui-sm tabular-nums text-foreground">
+                          <span>{percentageFormatter.format(segment.percent)}</span>
+                          {segment.tokens > 0 ? (
+                            <span className="text-foreground-subtlest">
+                              ({formatTokenCountK(segment.tokens)})
+                            </span>
+                          ) : null}
                         </span>
                       </div>
                     ))}

@@ -6,6 +6,7 @@ import { formatCompactTokenNumber } from "@/lib/tokenNumberFormat.js";
 import {
   buildSessionStatsView,
   formatSessionStatsDuration,
+  formatSessionStatsPercent,
   formatSessionStatsTokenCount,
 } from "@/v4/sessionStatsView.js";
 
@@ -40,7 +41,9 @@ export function SessionStatsCapsules({
   const view = buildSessionStatsView(usage);
   if (!view.hasActivity) return null;
   const tps = view.tokensPerSecond === null ? null : Math.max(1, Math.round(view.tokensPerSecond));
-  const cacheHitPercent = view.cacheHitRate === null ? null : Math.round(view.cacheHitRate * 100);
+  // 与上下文面板的“平均缓存命中率”同口径同精度：保留一位小数，便于两处直接对比。
+  const cacheHitPercent =
+    view.cacheHitRate === null ? null : formatSessionStatsPercent(view.cacheHitRate);
 
   return (
     <div

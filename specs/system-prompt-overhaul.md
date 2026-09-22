@@ -465,3 +465,27 @@ local 47.7~48.7%——按错误口径算都是 ~48%，按正确口径都是 ~94%
   `TSX_TSCONFIG_PATH=packages/ui/tsconfig.json node --import tsx --test packages/ui/test/sessionStatsView.test.ts` 7/7 通过。
 
 为什么保留 49% 的另一个数：上下文面板那个 95.7% 走 `session-mapper.ts` 的 `cacheReadTokens / inputTokens`，是对的，不动。
+
+## 20. 命中率三处不一致（旁路请求 + 逐轮总量）
+
+现象：`sess_77761740` 同一屏三个数：状态栏胶囊 87%、上下文面板 90.3%、逐轮浮层 90%。
+真实数据：main_turn 一行 `input = 9 075 / cache_read = 8 192`，另有一行 `session_title`（input 388、命中 0）。
+
+根因两个，都在适配层聚合：
+
+1. `queryTaskUsage` 把 **所有** `model_usage` 行累进 `rawInputTokens` / `rawCacheReadTokens`（含标题生成这类旁路请求）。
+   旁路请求每次都是全新提示词、永远不可能命中，把分母拉大 → 8 192 / (9 075 + 388) = **86.6%**（显示 87%）。
+   同一函数里的 `cacheReadTokens` / `cacheCreationTokens` 本来就用 `source !== undefined` 门控，两个口径自相矛盾。
+2. `queryTurnUsage` 的 `totalTokens = input + cacheRead + output` 把输入算了两遍，
+   逐轮浮层“本轮用量 18 849 tok” = 9 075 + 8 192 + 1 582，实际应为 **10 657**。
+
+修复：
+
+- `queryTaskUsage`：`rawInputTokens` / `rawCacheReadTokens` 与缓存 breakdown 一致，只统计 main_turn / subagent / workflow_child；
+  同时把 `cacheReadTokens` / `cacheCreationTokens` 的反向门控（`source === undefined`）改为正向——
+  缓存是 breakdown 字段，不进 totalTokens，不会重复计数。
+- `queryTurnUsage`：`totalTokens = input + output`。
+
+等价 SQL 对账（真库只读）：胶囊 8 192 / 9 075 = **90.3%**（与面板一致）；本轮用量 = **10 657**。
+
+遗留：旧会话的 `turn_usage` 行仍是旧口径写入的旧值吗？不是——`totalTokens` 是查询时现算的，不落盘，所以旧会话也立即修正。

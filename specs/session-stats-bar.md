@@ -51,3 +51,18 @@ composer 卡片内底行居中展示两枚可点击胶囊（DSH 式），详情�
 - 修订：动作行调用点必须传 `turnId`（漏传则胶囊恒不渲染）；用时浮层首两行为「本轮用时 / 速度」（速度 = 输出 token ÷ 解码窗，解码窗 = 模型用时 − 首 token）；
   两个统计 RPC 固定 `existing-only`：观察路径不得为已回收会话拉起 runtime（避免重置上下文快照等副作用）。
 - 关联键：UI 行 `turnId` 为 msg\_ 值域，等于 `turn_usage.user_message_id`；逐轮 map 以 `userMessageId` 为键（回退 `turn_id`），协议字段 `userMessageId` nullable。
+
+## 展示修订（自用 fork）
+
+1. **命中率精度统一一位小数**：`formatSessionStatsPercent` 导出，状态栏胶囊与会话/逐轮浮层共用；
+   之前胶囊 `Math.round` 成整数，和上下文面板的 90.3% 对不上（同口径不同精度也会看起来像两个数）。
+2. **上下文面板单位固定 K**：`formatTokenCountK`（`lib/tokenNumberFormat.ts`）不随 locale 变万/亿，
+   顶部摘要改为 `11K / 450K (2.4%)`，跟 DSH 与 provider 技术口径一致。
+3. **分项行补上估算 token**：协议 breakdown item 新增可选 `tokens`（core 快照 categories 本来就算了 `estimateTokens`，
+   以前只传 chars）；面板占比改按 token 算（否则百分比与括号里的 K 不同源、对不上），
+   渲染为 `86.5% (3.8K)`；旧快照无 `tokens` 时回退成只显示占比。
+4. **去掉 78% 展示阈值**：`CACHE_HIT_RATE_DISPLAY_THRESHOLD` 删除，平均缓存命中率恒显示。
+   原设计是“低命中不分散注意力”，但表现是同一面板会随数值高低少一行，被当成 bug；用户要求稳定可见。
+
+验收：面板四项（系统工具/系统提示词/消息/其他）都带括号 K；平均缓存命中率始终有行；
+胶囊与面板命中率同值同精度。

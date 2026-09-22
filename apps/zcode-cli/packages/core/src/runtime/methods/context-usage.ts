@@ -267,7 +267,8 @@ export function buildContextUsageBreakdownFromSnapshot(
     if (!source || chars === undefined || chars <= 0) {
       continue;
     }
-    breakdown.push({ source, chars });
+    // 快照 categories 已经算好估算 token（旧快照可能没有，记 0 让面板回退成只显示占比）。
+    breakdown.push({ source, chars, tokens: nonNegativeInteger(category.tokens) ?? 0 });
   }
 
   return breakdown;

@@ -661,7 +661,9 @@ export async function queryTaskUsage(
     inputTokens += incrementalInputTokens;
     outputTokens += rowOutputTokens;
     reasoningTokens += rowReasoningTokens;
-    if (source === undefined) {
+    // 缓存字段是 breakdown，只统计真正跑上下文的轮次（main_turn/subagent/workflow_child）；
+    // 旁路请求（标题生成/压缩/git message）每次都是全新提示词，算进来会把命中率压低。
+    if (source !== undefined) {
       cacheCreationTokens += Number(row.cacheCreationTokens ?? 0);
       cacheReadTokens += Number(row.cacheReadTokens ?? 0);
     }
@@ -675,8 +677,11 @@ export async function queryTaskUsage(
         decodeWindowMs += Math.max(0, rowDurationMs - rowTtftMs);
       }
     }
-    rawInputTokens += Math.max(0, Number(row.inputTokens ?? 0));
-    rawCacheReadTokens += Math.max(0, Number(row.cacheReadTokens ?? 0));
+    // raw 口径供命中率使用，同样只统计跑上下文的轮次；旁路请求会稀释分母。
+    if (source !== undefined) {
+      rawInputTokens += Math.max(0, Number(row.inputTokens ?? 0));
+      rawCacheReadTokens += Math.max(0, Number(row.cacheReadTokens ?? 0));
+    }
     if (row.status === "error") {
       modelErrorCount += 1;
     }
@@ -822,7 +827,8 @@ export async function queryTurnUsage(
       outputTokens,
       cacheCreationTokens,
       cacheReadTokens,
-      totalTokens: inputTokens + cacheReadTokens + outputTokens,
+      // turn_usage.input_tokens 已是 total input（含缓存命中），再加 cacheRead 会把输入算两遍。
+      totalTokens: inputTokens + outputTokens,
       modelRequestCount: Math.max(0, Number(row.modelRequestCount ?? 0)),
       toolCallCount: Math.max(0, Number(row.toolCallCount ?? 0)),
       providerId: model?.providerId ?? null,
