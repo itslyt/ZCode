@@ -60,7 +60,10 @@ composer 卡片内底行居中展示两枚可点击胶囊（DSH 式），详情�
    顶部摘要改为 `11K / 450K (2.4%)`，跟 DSH 与 provider 技术口径一致。
 3. **分项行补上估算 token**：协议 breakdown item 新增可选 `tokens`（core 快照 categories 本来就算了 `estimateTokens`，
    以前只传 chars）；面板占比改按 token 算（否则百分比与括号里的 K 不同源、对不上），
-   渲染为 `86.5% (3.8K)`；旧快照无 `tokens` 时回退成只显示占比。
+   渲染为 `86.5% (7.8K)`。
+   注意：快照里的估算 token 与 provider 实测差距大（真机实测工具 schema 估算 20K，而整个请求 provider 只算 9K），
+   直接用估算值会出现“分项合计 23K > 顶部已用 9K”的矛盾；因此分项 K 按 `used` 缩放（`round(used × 占比)`），
+   各项相加正好等于顶部数字；旧快照无 `tokens` 时占比退回字符口径。
 4. **去掉 78% 展示阈值**：`CACHE_HIT_RATE_DISPLAY_THRESHOLD` 删除，平均缓存命中率恒显示。
    原设计是“低命中不分散注意力”，但表现是同一面板会随数值高低少一行，被当成 bug；用户要求稳定可见。
 

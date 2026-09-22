@@ -151,6 +151,7 @@ const BREAKDOWN_SOURCE_ORDER: Record<ContextUsageBreakdownSource, number> = {
 
 function buildContextUsageBreakdownSegments(
   breakdown: readonly ZCodeContextUsageBreakdownItem[] | undefined,
+  usedTokens: number,
 ): ContextUsageBreakdownSegment[] {
   const charsBySource = new Map<ContextUsageBreakdownSource, number>();
   const tokensBySource = new Map<ContextUsageBreakdownSource, number>();
@@ -167,19 +168,23 @@ function buildContextUsageBreakdownSegments(
     return [];
   }
 
-  // 占比与分项 K 必须同源，否则两个数字对不上：新快照有估算 token 时按 token 算占比，
-  // 旧快照只有 chars 时退回按字符算占比（此时不显示分项 K）。
+  // 占比用估算 token 算（旧快照只有 chars 时退回字符占比）。
   const totalTokens = [...tokensBySource.values()].reduce((sum, tokens) => sum + tokens, 0);
   const useTokens = totalTokens > 0;
 
   return [...charsBySource.entries()]
     .map(([source, chars]) => {
-      const tokens = tokensBySource.get(source) ?? 0;
+      const percent = useTokens
+        ? (tokensBySource.get(source) ?? 0) / totalTokens
+        : chars / totalChars;
       return {
         chars,
-        percent: useTokens ? tokens / totalTokens : chars / totalChars,
+        percent,
         source,
-        tokens,
+        // 分项 K 按 provider 实测的 used 缩放：快照里的估算 token 与 provider 口径差得多
+        // （工具 schema 尤其明显），直接用估算值会出现“分项合计 > 顶部已用”的矛盾。
+        tokens:
+          usedTokens > 0 ? Math.round(usedTokens * percent) : (tokensBySource.get(source) ?? 0),
       };
     })
     .sort(
@@ -795,8 +800,12 @@ export function ChatContextUsage({
     return formatContextCacheHitRateLabel(renderableTaskUsage?.cache?.hitRate, locale);
   }, [locale, renderableTaskUsage]);
   const breakdownSegments = useMemo(
-    () => buildContextUsageBreakdownSegments(renderableTaskUsage?.breakdown),
-    [renderableTaskUsage?.breakdown],
+    () =>
+      buildContextUsageBreakdownSegments(
+        renderableTaskUsage?.breakdown,
+        renderableTaskUsage?.used ?? 0,
+      ),
+    [renderableTaskUsage?.breakdown, renderableTaskUsage?.used],
   );
   const progressSegments = useMemo(
     () => buildContextUsageProgressSegments(breakdownSegments),
