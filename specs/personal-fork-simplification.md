@@ -74,3 +74,30 @@ UI 侧移除 `DesktopTopOverlay` 的 `UpdateStatusButton` 与帮助菜单里的�
 `pnpm architecture:check --changed` 0 新增违规。
 
 副作用：验证时在真实 session DB 里留下 `/tmp/zcode-hook-test`（5 个）与 `/tmp/zcode-mode-test`（1 个）测试会话，未自行删除，可在 App 里删。
+
+## 6. 去掉 4 个插件子智能体（配置级）
+
+现象：设置 → 子智能体 页面列出 4 条 `visual-judge`（Documents / Pdf / Presentations / Spreadsheets），
+每条标“2 个工具”。用户没有对应插件能力需求。
+
+来源：这 4 条不是内置子智能体，而是 4 个官方插件（`documents` / `pdf` / `presentations` / `spreadsheets`，
+定义见 `apps/zcode-cli/packages/bootstrap/src/app/official-plugin-definitions.ts`）各自 seed 的 `agents/visual-judge.md`。
+这些插件是拆分后的新插件，`defaultEnabled: true`，所以用户把旧的聚合插件 `document-skills` 置为 false 并不能挡住它们。
+
+处理：在 `~/.zcode/cli/config.json` 的 `plugins.suppressedBuiltins` 里加入这 4 个插件 id。
+该开关在 seed/discovery 层生效（`bundled-plugins.ts`），所以插件不安装、不出现在插件列表、
+子智能体也不被发现——比 `enabledPlugins: false`（装了但不启用）更彻底。
+
+核验（打包 App + CDP）：设置 → 子智能体只剩“内置子智能体”段（`general-purpose`、`Explore`），
+`visual-judge` 出现 0 次；`zcode plugins list` 只剩 `node-repl-host`（启用）与 `browser-use`（禁用）。
+副作用：插件带的 docx/pptx/xlsx 技能也不再进提示词（真实请求里已搜不到这三个技能名）。
+
+## 7. 子智能体的实际使用情况（数据）
+
+- 设置页的“继承默认”只是给每个子智能体指定**模型/思考等级**，不新增能力；不委派就无影响。
+- 真实数据：82 个会话 / 1282 次工具调用中，`Agent` 调用 **0 次**；
+  仅有的 2 个 `parent_id` 子会话 `task_type` 都是 `selection_side_chat`（划词提问），不是子智能体运行。
+- 两个内置子智能体：`general-purpose`（全部工具，多步研究委派）、`Explore`（7 个工具，只读广域搜索）。
+  当前提示词里“委派只用于答案很短的广域探查”那条指向的就是 `Explore`。
+- 若要彻底去掉委派：从 `CODING_ONLY_TOOLS` 里移除 `Agent`，省 2 834 字符 schema（27 499 的 ~10%）。
+  （`SendMessage`/`TaskOutput`/`TaskStop` 是为后台任务准备的，与 Agent 独立，可保留。）
