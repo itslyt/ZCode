@@ -230,5 +230,69 @@ todo_write / job_list / job_output / job_kill / skill / subagent / ask_user_ques
 read_image / undo_last_edit / web_fetch），且**刻意不含** workflow / cron / off-peak / goals / agent-control /
 subagent_fork / PTY。ZCode 改前 32 个，改后 18 个，数量与 DSH 持平。
 
-DSH 的 schema 字节数无法测量：DSH 不落请求体，session 文件是 zstd 且不含 tools 数组（本机也没有 zstd 命令）。
-所以这一项只能做数量与结构的对比，字节对比是估算。
+DSH 不落请求体，所以字节数改从**本地源码**量：`/Users/liuyutong08/Work/deepseek-harness`
+下各 `tool-*/src` 里的 `description:` 字面量 + `parameters:` 对象字面量。
+
+## 12. 工具定义逐项对比：胖还是瘦
+
+DSH 侧（源码量，同口径：描述 + 参数块）与 ZCode 侧（真实请求）：
+
+| 工具               | DSH       | ZCode                                    | 差             |
+| ------------------ | --------- | ---------------------------------------- | -------------- |
+| read               | 542       | Read 1 435                               | ZCode 胖 2.6x  |
+| write              | 428       | Write 655                                | 1.5x           |
+| edit               | 904       | Edit 980                                 | 持平           |
+| bash               | 2 475     | Bash 2 499                               | 持平           |
+| glob / grep        | 756 / 809 | Glob 142 / Grep 479（内置 metadata）     | 持平           |
+| todo               | 782       | TodoWrite 1 133 + TodoRead 221           | 1.7x           |
+| jobs 3 个          | 1 274     | TaskOutput 1 562 + TaskStop 553          | 1.7x           |
+| skill              | 359       | Skill 1 729                              | **4.8x**       |
+| subagent           | 2 563     | Agent 2 834 + SendMessage 1 119          | 1.5x           |
+| ask_user           | 1 922     | AskUserQuestion 4 913                    | **2.6x**       |
+| plan               | 355       | EnterPlanMode 4 328 + ExitPlanMode 2 777 | **20x**        |
+| web_fetch          | 195       | WebFetch 761                             | **3.9x**       |
+| read_image         | 254       | —（未注册）                              |                |
+| str_replace_editor | 3 489     | —（ZCode 只有 Edit）                     | DSH 自己也不瘦 |
+
+结论：**胖瘦差异集中在 5 个工具**——plan（7 105）、ask_user（4 913）、skill（1 729）、
+web_fetch（761）、read（1 435），占 ZCode 现有 18.9k 的 **77%**；而 Bash/Edit/Write/Glob/Grep
+这些干活的工具两边几乎一样重。
+
+### 判断：保持 ZCode 的胖，不要向 DSH 的瘦看齐
+
+1. **DSH 的瘦不是写得好，是契约放进了代码**：`plan_mode` 只有 355 字符，因为计划模式的约束由
+   `packages/plan/plan-mode/src/invariant.ts` 这类硬机制在运行时守；ZCode 把它写成 4 328 字符的
+   散文，模型得读完才知道边界。抄 DSH 的短文案而不搬它的机制，等于把契约删了。
+2. **省下的量级不值得**：剩下 18.9k 字符 ≈ 5k tokens，即使砍一半也只省 2.5k tokens，
+   而本轮已经砍掉 113k 字符（≈28k tokens）。
+3. **成本在同步侧**：改写上游工具描述，每次同步上游都冲突，而且会丢掉上游对这些描述的修复
+   （AskUserQuestion 的 schema 必须和 Desktop 的问答 UI 协议一致，裁短可能直接弄坏交互）。
+
+所以：**提示词和工具面已经瘦到位了，不要再手工改描述文案**。
+
+## 13. 要不要把 DSH 的能力搬过来（我的意见）
+
+DSH 真正值得搬的是**硬机制**，不是工具链。逐个对账（ZCode 现状 → DSH 对应物）：
+
+| DSH 机制                                         | ZCode 现状                                                                   | 建议                              |
+| ------------------------------------------------ | ---------------------------------------------------------------------------- | --------------------------------- |
+| `tool-result-budget`（结果预算 + 落盘）          | **已有**：`tool/executor/result-serialization.ts` 有字符预算与 artifact 落盘 | 不搬                              |
+| 编辑前必须读过（硬错误）                         | **已有**：`tool/handlers/edit.ts` 拒绝未读文件                               | 不搬                              |
+| `edit-fail-coach`                                | 部分：已有硬拒绝，但无失败后的提示                                           | 可搬（PostToolUseFailure hook）   |
+| `todo-closeout`                                  | **缺**：ZCode 有 TodoWrite，但没有收尾约束                                   | **优先搬**（Stop hook，收益最大） |
+| `rollout-budget`（token 账本告警）               | 部分：`turn_usage` / `model_usage` 表有数据，无告警                          | 可搬（数据已存在）                |
+| `deliberation-gate` / `cot-drip`（思考强度控制） | 部分：已有 `zcode-patcher` skill 下发 effort                                 | 看需要                            |
+
+ZCode 侧现成可用的挂点：hooks 7 个事件（PreToolUse / PostToolUse / PostToolUseFailure /
+PermissionRequest / SessionStart / Stop / UserPromptSubmit）、权限规则集、`tool_usage` 可观测表。
+
+### 我的结论
+
+**现在还不急着把主力切过去**，按这个顺序更稳：
+
+1. 先重打包（`node scripts/build-desktop-agent-cli.mjs`）跑一次真机会话，确认新提示词与 18 个工具在
+   App 里真的生效（这是当前唯一未验证环节）；
+2. 搬 `todo-closeout` 一个机制（ZCode 缺、成本低、你每天都能感受到）；
+3. 拿真实任务并行跑一周：ZCode 干编码，DSH 继续当主力；对比两者在“长任务收尾”和“改完是否验证”上的差别；
+4. 再决定全量切。不建议一次性切完——DSH 那 6 个机制是你现在体验的来源，ZCode 只搬了提示词，
+   机制还差一层。
