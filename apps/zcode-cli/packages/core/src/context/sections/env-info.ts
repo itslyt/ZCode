@@ -18,15 +18,9 @@ const GIT_LABEL = "Git";
 const NOT_A_GIT_REPOSITORY = "not a git repository";
 const YES_LABEL = "yes";
 const NO_LABEL = "no";
-const GIT_SYSTEM_CONTEXT_PREFIX =
-  "gitStatus: This is the git status at the start of the conversation. Note that this status is a snapshot in time, and will not update during the conversation.";
 const CURRENT_BRANCH_LABEL = "Current branch";
 const MAIN_BRANCH_LABEL = "Main branch (you will usually use this for PRs)";
 const GIT_USER_LABEL = "Git user";
-const STATUS_LABEL = "Status";
-const CLEAN_GIT_STATUS = "(clean)";
-const DIRTY_GIT_STATUS = "(dirty)";
-const UNKNOWN_GIT_STATUS = "(unknown)";
 
 export function buildEnvInfoSection(envInfo: EnvInfo, model?: Model): ContextSection {
   const content = buildEnvInfoContent(envInfo, model);
@@ -82,7 +76,10 @@ function buildEnvInfoContent(info: EnvInfo, model?: Model): string {
 }
 
 function buildGitSystemContextContent(info: EnvInfo): string {
-  const lines: string[] = [GIT_SYSTEM_CONTEXT_PREFIX];
+  // 自用 fork：不再输出 gitStatus 快照（前缀句 + 改动/未跟踪清单）。原句自述“会话开始时的快照、
+  // 之后不更新”，模型需要时直接跑 git status 更准；且它逐会话不同，会让同 workspace 内
+  // 不同会话的静态前缀无法共享缓存。
+  const lines: string[] = [];
 
   if (info.gitBranch) {
     lines.push("", `${CURRENT_BRANCH_LABEL}: ${info.gitBranch}`);
@@ -94,8 +91,6 @@ function buildGitSystemContextContent(info: EnvInfo): string {
     lines.push("", `${GIT_USER_LABEL}: ${info.gitUser}`);
   }
 
-  lines.push("", `${STATUS_LABEL}:\n${formatGitStatus(info)}`);
-
   return lines.join("\n");
 }
 
@@ -104,17 +99,4 @@ export function isEnvInfoGitRepository(info: EnvInfo): boolean {
     info.isGitRepository ??
     (info.gitStatus !== undefined ? info.gitStatus !== "not_repo" : Boolean(info.gitBranch))
   );
-}
-
-function formatGitStatus(info: EnvInfo): string {
-  if (info.gitStatusLines && info.gitStatusLines.length > 0) {
-    return info.gitStatusLines.join("\n");
-  }
-  if (info.gitStatus === "dirty") {
-    return DIRTY_GIT_STATUS;
-  }
-  if (info.gitStatus === "clean") {
-    return CLEAN_GIT_STATUS;
-  }
-  return UNKNOWN_GIT_STATUS;
 }
