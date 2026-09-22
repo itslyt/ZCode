@@ -36,6 +36,7 @@ import {
   resolveBatchEdits,
   type BatchEditRequest,
 } from "../edit-batch.js";
+import { mergeServedAnchors } from "../anchor-served.js";
 import {
   findEditMatch,
   normalizeLineEndings,
@@ -713,6 +714,8 @@ function updateReadFileStateAfterEdit(
   revision: FileSystemReadTextResult["revision"] | undefined,
 ): ReadFileStateEntry | undefined {
   if (!readFileState) return undefined;
+  const key = createReadFileStateKey(filePath, 1, undefined);
+  const previous = readFileState.get(key);
   const entry: ReadFileStateEntry = {
     path: filePath,
     content,
@@ -724,6 +727,9 @@ function updateReadFileStateAfterEdit(
     revisionId: revision?.id,
     mtimeMs: normalizeReadFileStateMtimeMs(revision?.mtimeMs),
     sizeBytes: revision?.sizeBytes ?? Buffer.byteLength(content, "utf8"),
+    // served 集合只增不减：编辑不展示新内容给模型，但也不能把之前展示过的锚点抹掉，
+    // 否则模型编辑一次后，它手里其余行的锚点就会被误判为“没看过”。
+    servedAnchors: mergeServedAnchors(previous?.servedAnchors, []),
   };
   readFileState.set(createReadFileStateKey(filePath, 1, undefined), entry);
   return entry;

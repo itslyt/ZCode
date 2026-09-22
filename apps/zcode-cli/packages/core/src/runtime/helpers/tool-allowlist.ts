@@ -80,6 +80,7 @@ const CODING_ONLY_TOOLS = [
   "Read",
   "Write",
   "Edit",
+  "EditAnchored",
   "Bash",
   "Glob",
   "Grep",

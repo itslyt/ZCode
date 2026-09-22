@@ -17,6 +17,8 @@ export interface PersistedReadFileStateMetadata {
   revisionId: string;
   mtimeMs: number;
   sizeBytes: number;
+  /** 已展示给模型的行锚点哈希；历史数据可能没有这个字段 */
+  servedAnchors?: string[];
 }
 
 export function createReadFileStateMetadata(input: {
@@ -71,6 +73,9 @@ export function createReadFileStateMetadataFromEntry(input: {
     revisionId: entry.revisionId,
     mtimeMs: entry.mtimeMs,
     sizeBytes: entry.sizeBytes,
+    ...(entry.servedAnchors === undefined || entry.servedAnchors.length === 0
+      ? {}
+      : { servedAnchors: entry.servedAnchors }),
   };
 }
 
@@ -93,6 +98,7 @@ export function parseReadFileStateMetadata(
   const revisionId = stringField(readState, "revisionId");
   const mtimeMs = numberField(readState, "mtimeMs");
   const sizeBytes = numberField(readState, "sizeBytes");
+  const servedAnchors = stringArrayField(readState, "servedAnchors");
   if (
     !path ||
     content === undefined ||
@@ -119,6 +125,7 @@ export function parseReadFileStateMetadata(
     revisionId,
     mtimeMs,
     sizeBytes,
+    ...(servedAnchors === undefined ? {} : { servedAnchors }),
   };
 }
 
@@ -144,4 +151,10 @@ function numberField(record: Record<string, unknown>, key: string): number | und
 function booleanField(record: Record<string, unknown>, key: string): boolean | undefined {
   const value = record[key];
   return typeof value === "boolean" ? value : undefined;
+}
+
+function stringArrayField(record: Record<string, unknown>, key: string): string[] | undefined {
+  const value = record[key];
+  if (!Array.isArray(value)) return undefined;
+  return value.filter((item): item is string => typeof item === "string");
 }

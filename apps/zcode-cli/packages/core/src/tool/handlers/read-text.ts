@@ -10,6 +10,7 @@ import {
   type TraceContext,
 } from "@zcode/contracts";
 
+import { formatAnchorPrefix, hashLineContent } from "../anchor-hash.js";
 import { estimateTokens } from "../../context/utils.js";
 
 const EMPTY_FILE_REMINDER = formatReadToolResultWarning(
@@ -89,9 +90,18 @@ export function addReadLineNumbers({
   content: string;
   startLine: number;
 }): string {
+  // startLine 为 0 只出现在「调用方显式传 offset=0」的路径（见 formatReadTextOutput 的
+  // `offset === 0 ? 0 : read.startLine`）。那种情况下内容仍然是从文件第 1 行开始的，
+  // 直接拿 0 当行号会让首行渲染成 `0:HASH│`，既与工具描述「line numbers starting at 1」
+  // 矛盾，又会让行号在 offset=0 / offset=1 两次读取之间不一致（真机验证踩到过）。
+  const firstLineNumber = startLine <= 0 ? 1 : startLine;
+
   return content
     .split(/\r?\n/)
-    .map((line, index) => `${index + startLine}\t${line}`)
+    .map((line, index) => {
+      const lineNumber = index + firstLineNumber;
+      return `${formatAnchorPrefix(lineNumber, hashLineContent(line))}${line}`;
+    })
     .join("\n");
 }
 

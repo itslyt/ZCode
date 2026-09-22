@@ -108,6 +108,7 @@ function restoreReadToolState(
     readAt: new Date(metadata.readAtMs),
     revisionId: metadata.revisionId,
     sizeBytes: metadata.sizeBytes,
+    servedAnchors: metadata.servedAnchors,
     sourceTool: metadata.tool,
   });
   return true;
@@ -130,6 +131,7 @@ function restoreMetadataToolState(
     readAt: new Date(metadata.readAtMs),
     revisionId: metadata.revisionId,
     sizeBytes: metadata.sizeBytes,
+    servedAnchors: metadata.servedAnchors,
     sourceTool: metadata.tool,
   });
   return true;
@@ -145,6 +147,7 @@ function setFullReadState(
     readAt: Date;
     revisionId?: string;
     sizeBytes?: number;
+    servedAnchors?: string[];
     sourceTool?: PersistedReadFileStateTool;
   },
 ): void {
@@ -159,6 +162,7 @@ function setFullReadState(
     revisionId: metadata.revisionId,
     mtimeMs: metadata.mtimeMs,
     sizeBytes: metadata.sizeBytes ?? Buffer.byteLength(content, "utf8"),
+    servedAnchors: metadata.servedAnchors,
   });
 }
 

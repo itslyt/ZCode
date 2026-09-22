@@ -3,6 +3,8 @@
 // ============================================================
 
 import { basename, dirname, extname } from "node:path";
+import { computeLineHashes } from "../anchor-hash.js";
+import { mergeServedAnchors } from "../anchor-served.js";
 import type {
   ReadFileStateEntry,
   ReadFileStateMap,
@@ -60,7 +62,8 @@ const READ_PROVIDER_DESCRIPTION = [
   "- `file_path` must be an absolute path.",
   `- Reads up to ${READ_DEFAULT_MAX_LINES} lines by default.`,
   "- You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters",
-  "- Results are returned using cat -n format, with line numbers starting at 1",
+  "- Each line is prefixed with an anchor `N:HASH│` (line number, colon, 4-character content hash). Pass anchors to EditAnchored to change those lines without retyping them.",
+  "- Anchors stay valid for lines you have already seen; after an edit, use the anchors returned in that edit's result.",
   "- Reads images (PNG, JPG, …) and presents them visually.",
   "- Reads videos (MP4, MOV, WEBM, …) and presents them as video input (subject to ZCode's video input limit).",
   "- Reading a directory, a missing file, or an empty file returns an error or system reminder rather than content.",
@@ -376,6 +379,11 @@ function updateReadFileState(
     revisionId: revision?.id,
     mtimeMs: normalizeReadFileStateMtimeMs(revision?.mtimeMs ?? input.stat.mtimeMs),
     sizeBytes: input.stat.sizeBytes,
+    // 这一轮展示给模型的行锚点。与已有条目取并集：served 只增不减。
+    servedAnchors: mergeServedAnchors(
+      state.get(key)?.servedAnchors,
+      computeLineHashes(input.output.content.split(/\r?\n/)),
+    ),
   });
 }
 

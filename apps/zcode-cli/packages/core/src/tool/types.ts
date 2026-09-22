@@ -211,6 +211,14 @@ export interface ReadFileStateEntry {
   revisionId?: string;
   mtimeMs?: number;
   sizeBytes?: number;
+  /**
+   * 已经展示给模型的行锚点哈希（去重）。
+   *
+   * 这是锚点编辑的 served 集合：只有出现在这里的哈希才允许被 EditAnchored 引用。
+   * 只在 Read / 编辑结果回传时累加，**不随文件内容变化而清除**——否则模型自己
+   * 编辑一次后，它手里其余行的锚点就会被误判为“没看过”。
+   */
+  servedAnchors?: string[];
 }
 
 export type ReadFileStateMap = Map<string, ReadFileStateEntry>;
