@@ -291,6 +291,14 @@ function mergeServedAnchorsAfterRejection(input: {
 
   // 没有任何读状态时，served 需要有地方放。建一条保守条目：门禁字段一律按「没读全」处理，
   // 不提供任何 Edit/Write 可用的依据。
+  //
+  // 当前调用条件下这个分支**不可达**：进入本函数要求 `servedHashes.length > 0`，
+  // 而渲染非空只发生在 stale / ambiguous；这两个 reason 的前提是锚点哈希已经在 served
+  // 集合里（否则是 unserved、不渲染任何东西），served 又只能来自同路径的读状态条目，
+  // 所以 `findLatestReadFileState` 必然有值。
+  //
+  // 保留而不是删掉：这是本函数对「served 必须有地方放」这个契约的完整行为，
+  // 删掉会让未来其它调用方在本状态下静默丢掉 served（表现为模型重发撞 unserved）。
   const entry: ReadFileStateEntry = {
     path: input.filePath,
     content: "",

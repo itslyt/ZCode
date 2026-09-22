@@ -276,6 +276,18 @@ export interface RenderedAnchors {
 }
 
 /**
+ * 内容被清空时不能再渲染任何锚点。
+ *
+ * 坑：`splitLines("")` 返回 `[""]`（一个空行）而不是空数组，所以
+ * `lines.length === 0` 这种判据在空内容上不成立，会凭空渲染出「第 1 行」。
+ * 后果不是显示问题：那个假行的哈希就是 `hashLineContent("")`，并进 served 之后
+ * 文件里任意空行都变成「已读」。
+ */
+function isEmptyContent(content: string): boolean {
+  return content === "";
+}
+
+/**
  * 渲染一段带锚点的区域，供拒绝信息与编辑结果使用。
  * 这是 reject-and-serve：模型拿到它就能继续，不必重新读整个文件。
  *
@@ -287,8 +299,8 @@ export function formatAnchorRegion(
   centerLine: number,
   contextLines = REGION_CONTEXT_LINES,
 ): RenderedAnchors {
+  if (isEmptyContent(content)) return { text: "(file is empty)", servedHashes: [] };
   const lines = splitLines(content);
-  if (lines.length === 0) return { text: "(file is empty)", servedHashes: [] };
 
   const from = Math.max(1, centerLine - contextLines);
   const to = Math.min(lines.length, centerLine + contextLines);
@@ -326,8 +338,8 @@ export function buildUpdatedAnchors(
   changedRanges: readonly { start: number; end: number }[],
   contextLines = REGION_CONTEXT_LINES,
 ): RenderedAnchors {
+  if (isEmptyContent(content)) return { text: "", servedHashes: [] };
   const lines = splitLines(content);
-  if (lines.length === 0) return { text: "", servedHashes: [] };
 
   const windows = changedRanges
     .map((range) => ({

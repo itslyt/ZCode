@@ -447,6 +447,28 @@ test("§3c 相隔很远的两个编辑仍然分成两个区块", () => {
   assert.match(result.updatedText, /const row30 = 300;/);
 });
 
+test("§7.2 内容被清空后不得渲染出假行，也不得把空行哈希当成已读", () => {
+  const content = ["A1", "A2", "A3"].join("\n");
+  const result = editOnce(content, servedAll(content), [
+    {
+      removeFrom: anchorAt(content, 1),
+      removeTo: anchorAt(content, 3),
+      replacementText: "",
+    },
+  ]);
+
+  assert.equal(result.content, "");
+  // splitLines("") 是 [""] 而不是空数组，早期判据 lines.length === 0 在这里不成立
+  assert.equal(result.updatedText, "");
+  // 原有那几行的哈希仍算「看过」；这里只要求不新增空行哈希
+  assert.ok(!result.served.has(hashLineContent("")));
+});
+
+test("§7.2 空内容上渲染区域返回空结果，而不是一个假行", () => {
+  assert.deepEqual(formatAnchorRegion("", 1), { text: "(file is empty)", servedHashes: [] });
+  assert.deepEqual(buildUpdatedAnchors("", [{ start: 0, end: 0 }]), { text: "", servedHashes: [] });
+});
+
 test("回传的 servedHashes 恰好等于渲染出来的那些行", () => {
   const content = ["const a = 1;", "const b = 2;", "const c = 3;"].join("\n");
   const rendered = buildUpdatedAnchors(content, [{ start: 1, end: 1 }]);
@@ -470,10 +492,7 @@ test("formatAnchorRegion 渲染带锚点的区域并回报哈希", () => {
   );
 });
 
-test("空文件上渲染区域不报错", () => {
-  // 空文件在 splitLines 下是「一行空内容」，锚点照常渲染，不应抛错。
-  const region = formatAnchorRegion("", 1);
-  assert.match(region.text, /Current anchors \(lines 1-1\)/);
-  assert.deepEqual(region.servedHashes, [hashLineContent("")]);
-  assert.equal(buildUpdatedAnchors("", [{ start: 0, end: 0 }]).servedHashes.length, 1);
+test("空内容上渲染区域返回空结果，而不是一个假行", () => {
+  assert.deepEqual(formatAnchorRegion("", 1), { text: "(file is empty)", servedHashes: [] });
+  assert.deepEqual(buildUpdatedAnchors("", [{ start: 0, end: 0 }]), { text: "", servedHashes: [] });
 });
