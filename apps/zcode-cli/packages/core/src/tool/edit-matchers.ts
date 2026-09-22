@@ -1,3 +1,8 @@
+import { ANCHOR_SEPARATOR, parseAnchor } from "./anchor-hash.js";
+
+/** `N:HASH│content` 的捕获：1 = 锚点，2 = 行内容。 */
+const ANCHOR_PREFIX_PATTERN = new RegExp(`^(\\d+:[0-9A-Za-z]+)${ANCHOR_SEPARATOR}(.*)$`);
+
 export type EditMatchStrategy =
   | "exact"
   | "quote_normalized"
@@ -256,6 +261,10 @@ function collectNormalizedCandidates(
 function stripReadLineNumberPrefixes(search: string): string | null {
   const lines = search.split("\n");
   const stripped = lines.map((line) => {
+    // 当前 Read 的行前缀是 `N:HASH│`。模型把读到的带前缀内容整段粘进 old_string 时，
+    // 这里必须认出来，否则这一层容错对新格式失效（旧格式仍保留，历史会话可能还在用）。
+    const anchorMatch = line.match(ANCHOR_PREFIX_PATTERN);
+    if (anchorMatch && parseAnchor(anchorMatch[1]!) !== null) return anchorMatch[2] ?? "";
     const colonMatch = line.match(/^\d+: (.*)$/);
     if (colonMatch) return colonMatch[1] ?? "";
     const tabMatch = line.match(/^\d+\t(.*)$/);
