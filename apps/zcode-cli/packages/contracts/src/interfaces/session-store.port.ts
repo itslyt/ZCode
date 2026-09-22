@@ -1084,7 +1084,7 @@ export interface TaskUsageQueryResult {
   ttftSampleCount: number;
   /** (duration_ms - time_to_first_token_ms) 之和，即解码窗口，供 UI 算输出速度。 */
   decodeWindowMs: number;
-  /** 提供商原始口径：未缓存输入 token 之和（不做增量扣减）。 */
+  /** 提供商原始口径：**输入总量**（含缓存命中，不做增量扣减）；命中率分母用这个字段，不要再加 cacheRead。 */
   rawInputTokens: number;
   /** 提供商原始口径：缓存读取 token 之和。 */
   rawCacheReadTokens: number;

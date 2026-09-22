@@ -25,7 +25,8 @@ function usage(overrides: Partial<V4ConversationUsageResult> = {}): V4Conversati
     ttftTotalMs: 3_000,
     ttftSampleCount: 2,
     decodeWindowMs: 10_000,
-    rawInputTokens: 100,
+    // 用量库口径：rawInputTokens 是 total input（含命中），rawCacheReadTokens 是其中命中的子集。
+    rawInputTokens: 1000,
     rawCacheReadTokens: 900,
     turnCount: 3,
     toolCallCount: 7,
@@ -40,7 +41,7 @@ test("派生：TTFT 均值与 TPS 由聚合字段计算", () => {
   assert.equal(view.hasActivity, true);
 });
 
-test("派生：缓存命中率按 cacheRead / (cacheRead + 未缓存输入)", () => {
+test("派生：缓存命中率按 cacheRead / total input（inputTokens 已含命中）", () => {
   const view = buildSessionStatsView(usage());
   assert.equal(view.cacheHitRate, 0.9);
   assert.equal(view.totalTokens, 1200);
@@ -98,7 +99,8 @@ test("逐轮派生：总量与缓存命中走 turn_usage 原始口径", () => {
     timeToFirstTokenMs: 700,
     modelDurationMs: 3000,
     toolDurationMs: 900,
-    inputTokens: 1280,
+    // 同口径：inputTokens 是 total input，命中是它的子集。
+    inputTokens: 592_128,
     outputTokens: 312,
     cacheCreationTokens: 0,
     cacheReadTokens: 590_848,

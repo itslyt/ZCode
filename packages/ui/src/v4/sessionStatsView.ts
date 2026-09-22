@@ -20,9 +20,11 @@ export interface SessionStatsView {
 
 /** 会话级统计展示模型：全部由 v4/conversation/usage 的 DB 聚合派生，无窗口/条数限制；Token 用量与缓存拆分为提供商原始口径。 */
 export function buildSessionStatsView(usage: V4ConversationUsageResult): SessionStatsView {
-  const uncachedInput = usage.rawInputTokens;
-  const cacheRead = usage.rawCacheReadTokens;
-  const inputSide = uncachedInput + cacheRead;
+  // 用量库的 inputTokens 已是 total input（含缓存命中），cache 字段只是 breakdown；
+  // 分母不能再加 cacheRead，否则命中率会被压低一半（同 usage-stats-builder 的注释）。
+  const inputSide = usage.rawInputTokens;
+  const cacheRead = Math.min(usage.rawCacheReadTokens, inputSide);
+  const uncachedInput = Math.max(0, inputSide - cacheRead);
   return {
     hasActivity: usage.modelRequestCount > 0 || usage.totalTokens > 0,
     modelDurationMs: usage.modelDurationMs,
@@ -30,7 +32,7 @@ export function buildSessionStatsView(usage: V4ConversationUsageResult): Session
     ttftAvgMs: usage.ttftSampleCount > 0 ? usage.ttftTotalMs / usage.ttftSampleCount : null,
     tokensPerSecond:
       usage.decodeWindowMs > 0 ? (usage.outputTokens * 1000) / usage.decodeWindowMs : null,
-    totalTokens: uncachedInput + cacheRead + usage.outputTokens,
+    totalTokens: inputSide + usage.outputTokens,
     cacheHitRate: inputSide > 0 ? cacheRead / inputSide : null,
     uncachedInputTokens: uncachedInput,
     cacheReadTokens: cacheRead,
@@ -82,12 +84,13 @@ function decodeWindowMs(turn: V4ConversationTurnUsageRow): number {
 
 /** 逐轮胶囊展示模型：turn_usage 原始口径直接派生。 */
 export function buildTurnStatsView(turn: V4ConversationTurnUsageRow): TurnStatsView {
-  const inputSide = turn.inputTokens + turn.cacheReadTokens;
+  // 同上：turn.inputTokens 已是 total input，命中率分母就是它本身。
+  const cacheRead = Math.min(turn.cacheReadTokens, turn.inputTokens);
   return {
     totalTokens: turn.totalTokens,
-    cacheHitRate: inputSide > 0 ? turn.cacheReadTokens / inputSide : null,
-    uncachedInputTokens: turn.inputTokens,
-    cacheReadTokens: turn.cacheReadTokens,
+    cacheHitRate: turn.inputTokens > 0 ? cacheRead / turn.inputTokens : null,
+    uncachedInputTokens: Math.max(0, turn.inputTokens - cacheRead),
+    cacheReadTokens: cacheRead,
     outputTokens: turn.outputTokens,
     durationMs: turn.durationMs,
     modelDurationMs: turn.modelDurationMs,
