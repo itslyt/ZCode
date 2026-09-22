@@ -184,10 +184,14 @@ TodoRead/TodoWrite/WebFetch/WebSearch/Skill/Agent/SendMessage/TaskOutput/TaskSto
 
 实测（`registerBuiltInTools` 实跑；Agent/SendMessage 在真实会话里由 subagentPort 门控注册）：
 
-| 指标             | 改前    | 改后                                                                            |
-| ---------------- | ------- | ------------------------------------------------------------------------------- |
-| 注册工具数       | 32      | 18                                                                              |
-| 工具 schema 字符 | 132 456 | ~18 900（注册表实跑 16 个工具为 14 438，加上被 `includeAgent` 门的 Agent/Task） |
+| 指标             | 改前    | 改后                                                                                |
+| ---------------- | ------- | ----------------------------------------------------------------------------------- |
+| 注册工具数       | 32      | **15**（打包产物实测；比白名单 18 少 Glob/Grep/WebSearch，被 embedded-search 接管） |
+| 工具 schema 字符 | 132 456 | **27 499**（打包产物实测，降 79%）                                                  |
+
+注：真实注册的描述比内置 metadata 长得多（如 AskUserQuestion 1 788 → 4 913），所以只有真实请求的字符数能当依据。
+打包产物核验：`~/.zcode/cli/rollout/model-io-sess_01babc85-*.jsonl` 的 `request.toolNames` 为上述 15 个，
+新人格文案（`Track every background task id` / `defer to the user`）在位，已删的 `Recent commits` 与安全 IMPORTANT 行不在。
 
 被移除的族：动态工作流 9 个（~88k）、定时任务 4 个（~11k）、闲时任务 2 个（~4.1k），
 以及 ListModels / SendMessage / ReadSessionContext / js。
