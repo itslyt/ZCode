@@ -2839,6 +2839,45 @@ export function createZCodeTaskServiceAdapter(
       });
     },
 
+    /**
+     * re-key 移动：先改会话行绑定（resume 的 cwd/提示词根目录以它为准），再 re-key 任务索引。
+     * session id、历史消息与 usage 行都不动；失败时抛出，由 UI 提示（幂等，可重试）。
+     */
+    async moveTask(params): Promise<void> {
+      const source = {
+        workspacePath: params.workspacePath,
+        workspaceIdentity: params.workspaceIdentity,
+        taskId: params.taskId,
+      };
+      const target = {
+        workspacePath: params.targetWorkspacePath,
+        workspaceIdentity: params.targetWorkspaceIdentity,
+        taskId: params.taskId,
+      };
+
+      await options.zcodeAgentService.moveConversation({
+        ...source,
+        sessionId: params.taskId,
+        targetWorkspacePath: params.targetWorkspacePath,
+        ...(params.targetWorkspaceIdentity
+          ? { targetWorkspaceIdentity: params.targetWorkspaceIdentity }
+          : {}),
+      });
+
+      const meta = await taskIndexRepo.moveTask({
+        ...source,
+        targetWorkspacePath: params.targetWorkspacePath,
+        targetWorkspaceIdentity: params.targetWorkspaceIdentity,
+      });
+      if (!meta) {
+        throw new Error(`task index 中不存在 task: ${params.taskId}`);
+      }
+
+      // 源项目按移除处理（清缓存并换代 deleted join），目标项目按新增处理（membership 重拉）。
+      emitWorkspaceTaskListChanged(source, undefined, "task_deleted");
+      emitWorkspaceTaskListChanged(target, meta, "task_created");
+    },
+
     async deleteArchivedTask(params): Promise<boolean> {
       const meta = await taskIndexRepo.deleteArchivedTask(params);
       if (!meta) return false;

@@ -635,6 +635,17 @@ export interface IZCodeTaskService {
     workspaceIdentity?: string;
   }): Promise<void>;
 
+  /**
+   * 把任务移动到另一个本地项目：先改会话行绑定（resume 根目录权威），再 re-key 任务索引；
+   * session id、历史消息与用量行都不变。
+   */
+  moveTask(params: {
+    taskId: string;
+    workspacePath: string;
+    workspaceIdentity?: string;
+    targetWorkspacePath: string;
+    targetWorkspaceIdentity?: string;
+  }): Promise<void>;
   /** 仅删除写入时仍归档的任务；已恢复、已删除或不存在时返回 false，不清理 CLI 会话。 */
   deleteArchivedTask(params: {
     taskId: string;

@@ -1563,6 +1563,66 @@ export class TaskIndexRepo {
     });
   }
 
+  /**
+   * 把任务重新绑定到目标 workspace（re-key 移动）：session id、状态位、标题与元数据都不动，
+   * 只改写 workspace_key / workspace_path / workspace_identity，并清掉源 workspace 的分组引用。
+   * 幂等：源行已不在而目标行存在时按成功返回。
+   */
+  async moveTask(params: {
+    workspacePath: string;
+    workspaceIdentity?: string;
+    taskId: string;
+    targetWorkspacePath: string;
+    targetWorkspaceIdentity?: string;
+  }): Promise<ZCodeTaskMeta | null> {
+    await this.ensureReady();
+    return this.enqueueWrite(params, () => {
+      const database = this.getDatabase();
+      const sourceKey = workspaceKey(params);
+      const targetParams = {
+        workspacePath: params.targetWorkspacePath,
+        workspaceIdentity: params.targetWorkspaceIdentity,
+        taskId: params.taskId,
+      };
+      const sourceRow = this.getTaskRow(params);
+      if (!sourceRow) {
+        const existingTarget = this.getTaskRow(targetParams);
+        return existingTarget ? rowToMeta(existingTarget) : null;
+      }
+
+      const targetIdentity = params.targetWorkspaceIdentity?.trim() || null;
+      database.exec("BEGIN IMMEDIATE");
+      try {
+        database
+          .prepare(
+            `update tasks set
+               workspace_key = ?,
+               workspace_path = ?,
+               workspace_identity = ?,
+               updated_at = ?
+             where workspace_key = ? and task_id = ?`,
+          )
+          .run(
+            workspaceKey(targetParams),
+            params.targetWorkspacePath,
+            targetIdentity,
+            Date.now(),
+            sourceKey,
+            params.taskId,
+          );
+        database.exec("COMMIT");
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
+
+      // 分组按 workspace 隔离：源项目的组成员关系不能跟着走，否则目标项目会出现幽灵分组行。
+      this.deleteTaskGroupingReferencesReady(sourceKey, params.taskId);
+
+      const movedRow = this.getTaskRow(targetParams);
+      return movedRow ? rowToMeta(movedRow) : null;
+    });
+  }
   async updateTaskState(params: {
     workspacePath: string;
     workspaceIdentity?: string;

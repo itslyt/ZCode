@@ -8,6 +8,7 @@ import { useGlobalTaskList } from "@/hooks/useGlobalTaskList.js";
 import { useLocalWorkspaceScopes } from "@/hooks/useLocalWorkspaceScopes.js";
 import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { useTaskPermanentDelete } from "@/hooks/useTaskPermanentDelete.js";
+import { useRequestTaskMoveToProject } from "@/store/taskMoveToProjectStore.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { getTaskTimelineGroupMessage, groupTaskTimelineItems } from "@/lib/taskTimelineGroups.js";
 import { buildTaskWorkspaceKey } from "@/lib/taskQueryCache.js";
@@ -67,6 +68,7 @@ export function WorkspaceTimelineTasksSection({
 }) {
   const { intl, locale } = useZCodeIntl();
   const deleteTaskPermanently = useTaskPermanentDelete();
+  const requestTaskMoveToProject = useRequestTaskMoveToProject();
   const baseServices = useBaseWorkspaceServices();
   const scopedWorkspaceTabs = useLocalWorkspaceScopes({
     workspaceTabs,
@@ -741,6 +743,12 @@ export function WorkspaceTimelineTasksSection({
                 contextMenuItem,
                 contextMenuWorkspaceServices.services.zcodeTaskService,
               );
+            }}
+            onMoveTaskToProject={() => {
+              requestTaskMoveToProject({
+                task: contextMenuItem,
+                zcodeTaskService: contextMenuWorkspaceServices.services.zcodeTaskService,
+              });
             }}
             onTogglePinTask={(_taskId, pinned) => {
               // timeline 现在本地和远端分属两套缓存，pin 时需要同时维护成员关系。

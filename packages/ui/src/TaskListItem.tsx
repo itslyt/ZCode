@@ -792,6 +792,7 @@ export function TaskListItemContextMenuContent({
   onStartRenameTask,
   onArchiveTask,
   onMarkTaskAsUnread,
+  onMoveTaskToProject,
   onDeleteTask,
   disableTaskActions = false,
   disabledReason,
@@ -805,6 +806,7 @@ export function TaskListItemContextMenuContent({
   onStartRenameTask: (taskId: string, currentTitle: string) => void;
   onArchiveTask: (taskId: string) => void;
   onMarkTaskAsUnread: (taskId: string) => void;
+  onMoveTaskToProject?: (task: ZCodeTaskMeta) => void;
   onDeleteTask?: () => void;
   disableTaskActions?: boolean;
   disabledReason?: string;
@@ -876,6 +878,7 @@ export function TaskListItemContextMenuContent({
       onMarkTaskAsUnread={() => {
         onMarkTaskAsUnread(task.taskId);
       }}
+      onMoveTaskToProject={onMoveTaskToProject ? () => onMoveTaskToProject(task) : undefined}
       onOpenInSplitPane={
         splitPaneEntryEnabled
           ? () => {

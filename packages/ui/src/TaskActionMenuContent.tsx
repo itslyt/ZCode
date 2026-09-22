@@ -31,6 +31,7 @@ export function TaskActionMenuContent({
   onStartRenameTask,
   onArchiveTask,
   onMarkTaskAsUnread,
+  onMoveTaskToProject,
   onOpenInSplitPane,
   openInSplitPaneDisabled = false,
   onOpenTaskPathInFileManager,
@@ -64,6 +65,8 @@ export function TaskActionMenuContent({
   onStartRenameTask: () => void;
   onArchiveTask: () => void;
   onMarkTaskAsUnread: () => void;
+  /** 移动到其他项目（re-key）；未注入不渲染。 */
+  onMoveTaskToProject?: () => void;
   /** 「在分屏打开」（仅桌面 shell 传入；手机远控不显示该入口）。 */
   onOpenInSplitPane?: () => void;
   /** 当前 session 或 pane 数达上限且目标无已有归属时禁用（保留布局与层级）。 */
@@ -125,6 +128,19 @@ export function TaskActionMenuContent({
       >
         {intl.formatMessage({ id: "taskList.markAsUnread" })}
       </Item>
+      {onMoveTaskToProject ? (
+        <Item
+          disabled={taskTargetActionsDisabled}
+          title={disabledReason}
+          onSelect={() => {
+            if (!taskTargetActionsDisabled) {
+              onMoveTaskToProject();
+            }
+          }}
+        >
+          {intl.formatMessage({ id: "taskList.moveToProject" })}
+        </Item>
+      ) : null}
       {onOpenInSplitPane ? (
         <Item
           data-testid={TID_V4_TASK_OPEN_IN_SPLIT}

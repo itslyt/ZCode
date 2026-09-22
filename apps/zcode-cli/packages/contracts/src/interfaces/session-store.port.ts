@@ -274,6 +274,16 @@ export interface FileDiff {
   newPath?: string;
 }
 
+export interface MoveSessionInput {
+  sessionID: SessionId;
+  /** 目标项目的 project_id（由目标目录派生，见 bootstrap projectIdFromDirectory）。 */
+  projectID: ProjectId;
+  /** 目标 workspace identity；本地项目为 null。 */
+  workspaceID?: WorkspaceId | null;
+  /** 目标工作区目录；决定后续 resume 的 cwd 与提示词根目录。 */
+  directory: string;
+}
+
 export interface SessionRevert {
   messageID: MessageId;
   partID?: PartId;
@@ -1300,4 +1310,6 @@ export interface SessionStorePort {
   clearRevert(sessionID: SessionId): Promise<void>;
   /** 物理删除会话全部数据（单事务）；0 行视为成功，幂等可重试。 */
   deleteSession(sessionID: SessionId): Promise<void>;
+  /** 把会话重新绑定到另一个项目/工作区（session id 与消息不变）；单事务，幂等。 */
+  moveSession(input: MoveSessionInput): Promise<SessionInfo>;
 }

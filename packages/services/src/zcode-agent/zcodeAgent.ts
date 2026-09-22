@@ -102,6 +102,7 @@ import type {
   WorkspaceConfigTopicWireCandidate,
   V4ConversationTurnUsageResult,
   V4ConversationDeleteResult,
+  V4ConversationMoveResult,
 } from "@zcode/shared/zcode-protocol-v4";
 import { createServiceDescriptor } from "../descriptors.js";
 
@@ -144,6 +145,12 @@ import type {
 
 export interface ZCodeAgentSessionTarget extends ZCodeAgentWorkspaceTarget {
   sessionId: string;
+}
+
+/** 把会话重新绑定到目标项目/工作区（session id 与历史不变）。 */
+export interface ZCodeAgentMoveConversationParams extends ZCodeAgentSessionTarget {
+  targetWorkspacePath: string;
+  targetWorkspaceIdentity?: string;
 }
 
 export interface ZCodeAgentResumeSessionParams extends ZCodeAgentSessionTarget {
@@ -592,6 +599,7 @@ export interface IZCodeAgentService {
   getTaskTokenUsage(params: ZCodeAgentTaskTokenUsageParams): Promise<ZCodeTaskTokenUsageResult>;
   getConversationTurnUsage(params: ZCodeAgentSessionTarget): Promise<V4ConversationTurnUsageResult>;
   deleteConversation(params: ZCodeAgentSessionTarget): Promise<V4ConversationDeleteResult>;
+  moveConversation(params: ZCodeAgentMoveConversationParams): Promise<V4ConversationMoveResult>;
   readSession(params: ZCodeAgentReadSessionParams): Promise<ZCodeSessionStateSnapshot>;
   readSessionMessages(
     params: ZCodeAgentReadSessionMessagesParams,

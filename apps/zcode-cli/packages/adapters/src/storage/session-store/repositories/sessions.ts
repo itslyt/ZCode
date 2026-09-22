@@ -11,6 +11,7 @@ import {
   type SessionInfo,
   type SessionRevert,
   type UpdateSessionInput,
+  type MoveSessionInput,
   type SessionTaskType,
 } from "@zcode/contracts";
 import { decodeSessionRow } from "../codecs.js";
@@ -381,4 +382,36 @@ export async function deleteSession(db: DatabaseSync, sessionID: SessionId): Pro
     db.exec("ROLLBACK");
     throw error;
   }
+}
+
+/**
+ * 把会话重新绑定到目标项目/工作区：session id、消息与用量行都不动，
+ * 只改 project_id / workspace_id / directory，供 resume 时取新的 cwd 与提示词根目录。
+ * 幂等：重复执行同样的目标绑定不会产生额外副作用。
+ */
+export async function moveSession(
+  db: DatabaseSync,
+  input: MoveSessionInput,
+): Promise<SessionInfo> {
+  const existing = await getSession(db, input.sessionID);
+  if (!existing) {
+    throw new Error(`Session not found: ${input.sessionID}`);
+  }
+
+  db.prepare(
+    `update session set
+       project_id = ?,
+       workspace_id = ?,
+       directory = ?,
+       time_updated = max(time_updated, ?)
+     where id = ?`,
+  ).run(
+    input.projectID,
+    input.workspaceID ?? null,
+    input.directory,
+    Date.now(),
+    input.sessionID,
+  );
+
+  return mustGetSession(db, input.sessionID);
 }

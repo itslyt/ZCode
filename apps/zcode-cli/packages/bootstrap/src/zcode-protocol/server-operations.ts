@@ -42,6 +42,7 @@ import {
 } from "@zcode/contracts";
 import {
   v4ConversationDeleteParamsSchema,
+  v4ConversationMoveParamsSchema,
   v4ConversationTurnUsageParamsSchema,
 } from "@zcode/shared/zcode-protocol-v4";
 import {
@@ -2999,6 +3000,28 @@ export async function deleteConversation(
     throw new ProtocolRequestError(-32003, "Cannot delete conversation without session store");
   }
   await sessionStore.deleteSession(params.sessionId as SessionId);
+  return { sessionId: params.sessionId };
+}
+
+/**
+ * 把会话重新绑定到另一个项目/工作区：只改 project/workspace/directory，
+ * session id、消息与用量都不动，后续 resume 以新目录作为 cwd 与提示词根目录。
+ */
+export async function moveConversation(
+  context: ZCodeProtocolAgentServerContext,
+  rawParams: unknown,
+) {
+  const params = parseParams(v4ConversationMoveParamsSchema, rawParams ?? {});
+  const sessionStore = context.deps.sessionStore;
+  if (!sessionStore) {
+    throw new ProtocolRequestError(-32003, "Cannot move conversation without session store");
+  }
+  await sessionStore.moveSession({
+    sessionID: params.sessionId as SessionId,
+    projectID: projectIdFromDirectory(params.targetWorkspacePath),
+    workspaceID: (params.targetWorkspaceIdentity as WorkspaceId | undefined) ?? null,
+    directory: params.targetWorkspacePath,
+  });
   return { sessionId: params.sessionId };
 }
 

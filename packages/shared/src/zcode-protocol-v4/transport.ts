@@ -342,6 +342,7 @@ export const V4_METHODS = {
   conversationUsage: "v4/conversation/usage",
   conversationTurnUsage: "v4/conversation/turnUsage",
   conversationDelete: "v4/conversation/delete",
+  conversationMove: "v4/conversation/move",
   // 附件事务：禁止 full-data RPC。每个 chunk 的 decoded bytes <=512KiB，
   // renderer->host Channel 与 host->CLI NDJSON 都必须逐 request 证明 <=1MiB。
   attachmentBegin: "v4/attachment/begin",
@@ -831,6 +832,20 @@ export const v4ConversationDeleteResultSchema = z
   })
   .strict();
 export type V4ConversationDeleteResult = z.infer<typeof v4ConversationDeleteResultSchema>;
+export const v4ConversationMoveParamsSchema = z
+  .object({
+    sessionId: z.string().min(1),
+    targetWorkspacePath: z.string().min(1),
+    targetWorkspaceIdentity: z.string().min(1).optional(),
+  })
+  .strict();
+export type V4ConversationMoveParams = z.infer<typeof v4ConversationMoveParamsSchema>;
+export const v4ConversationMoveResultSchema = z
+  .object({
+    sessionId: z.string().min(1),
+  })
+  .strict();
+export type V4ConversationMoveResult = z.infer<typeof v4ConversationMoveResultSchema>;
 // ── 附件上行事务 ──
 // UI 高层仍用 put(input)->ref；这份 full-data schema 只描述 renderer 内部调用，绝不作为
 // production RPC method。wire 只能用 begin/chunk/commit/abort。

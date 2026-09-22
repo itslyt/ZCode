@@ -167,6 +167,7 @@ import type {
   ZCodeAgentServiceEvent,
   ZCodeAgentSessionSubscribeParams,
   ZCodeAgentSessionTarget,
+  ZCodeAgentMoveConversationParams,
   ZCodeAgentSessionRuntimePreferencesRequest,
   ZCodeAgentTaskTokenUsageParams,
   ZCodeAgentSetModeParams,
@@ -273,6 +274,7 @@ import {
   v4ConversationUsageResultSchema,
   v4ConversationTurnUsageResultSchema,
   v4ConversationDeleteResultSchema,
+  v4ConversationMoveResultSchema,
   v4SessionsIndexSubscribeResultSchema,
   v4UsageStatsResultSchema,
   v4WorkspaceConfigSubscribeResultSchema,
@@ -3683,6 +3685,22 @@ export function createZCodeAgentService(
         V4_METHODS.conversationDelete,
         { sessionId: params.sessionId },
         v4ConversationDeleteResultSchema,
+      );
+    },
+
+    async moveConversation(params: ZCodeAgentMoveConversationParams) {
+      // 移动是观察者发起的管理操作：不为已回收会话拉起 runtime。
+      const client = await getReadOnlyClient(params, "existing-only");
+      return client.request(
+        V4_METHODS.conversationMove,
+        {
+          sessionId: params.sessionId,
+          targetWorkspacePath: params.targetWorkspacePath,
+          ...(params.targetWorkspaceIdentity
+            ? { targetWorkspaceIdentity: params.targetWorkspaceIdentity }
+            : {}),
+        },
+        v4ConversationMoveResultSchema,
       );
     },
 

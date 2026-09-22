@@ -95,6 +95,7 @@ import {
   useWorkspaceDisplayName,
   useWorkspaceDisplayNameStore,
 } from "@/store/workspaceDisplayNameStore.js";
+import { useRequestTaskMoveToProject } from "@/store/taskMoveToProjectStore.js";
 import { toast } from "@/components/ui/toast.js";
 
 export type SortableBindings = Pick<ReturnType<typeof useSortable>, "attributes" | "listeners">;
@@ -216,6 +217,7 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
   const baseServices = useBaseWorkspaceServices();
   const zcodeTaskService = services.zcodeTaskService;
   const deleteTaskPermanently = useTaskPermanentDelete();
+  const requestTaskMoveToProject = useRequestTaskMoveToProject();
   const taskItemsRef = useRef(taskItems);
   taskItemsRef.current = taskItems;
   const workspaceZCodeStateRef = useRef(workspaceZCodeState);
@@ -1183,6 +1185,9 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
             onArchiveTask={handleArchiveTask}
             onDeleteTask={(task) => {
               void deleteTaskPermanently(task, zcodeTaskService);
+            }}
+            onMoveTaskToProject={(task) => {
+              requestTaskMoveToProject({ task, zcodeTaskService });
             }}
             onSetTaskUnread={handleSetTaskUnread}
             readOnlyReason={readOnlyReason}

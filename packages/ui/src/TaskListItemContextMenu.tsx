@@ -16,6 +16,7 @@ export function TaskListItemContextMenu({
   onStartRenameTask,
   onArchiveTask,
   onMarkTaskAsUnread,
+  onMoveTaskToProject,
   onOpenInSplitPane,
   openInSplitPaneDisabled,
   onOpenTaskPathInFileManager,
@@ -44,6 +45,7 @@ export function TaskListItemContextMenu({
   onStartRenameTask: () => void;
   onArchiveTask: () => void;
   onMarkTaskAsUnread: () => void;
+  onMoveTaskToProject?: () => void;
   /** 「在分屏打开」（仅桌面 shell 传入）。 */
   onOpenInSplitPane?: () => void;
   /** 叶子数达上限且该 session 未在任何 pane 时禁用。 */
@@ -73,6 +75,7 @@ export function TaskListItemContextMenu({
         onStartRenameTask={onStartRenameTask}
         onArchiveTask={onArchiveTask}
         onMarkTaskAsUnread={onMarkTaskAsUnread}
+        onMoveTaskToProject={onMoveTaskToProject}
         onOpenInSplitPane={onOpenInSplitPane}
         openInSplitPaneDisabled={openInSplitPaneDisabled}
         onOpenTaskPathInFileManager={onOpenTaskPathInFileManager}

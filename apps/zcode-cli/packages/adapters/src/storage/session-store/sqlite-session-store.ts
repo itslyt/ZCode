@@ -57,6 +57,7 @@ import type {
   UpsertScriptWorkflowDefinitionInput,
   UpdateScriptWorkflowActivityInput,
   UpdateSessionInput,
+  MoveSessionInput,
   UpdateScriptWorkflowRunInput,
   UsageStorePort,
 } from "@zcode/contracts";
@@ -918,6 +919,10 @@ export class SqliteSessionStore
 
   async deleteSession(sessionID: SessionId): Promise<void> {
     return sessionRepository.deleteSession(this.db, sessionID);
+  }
+
+  async moveSession(input: MoveSessionInput): Promise<SessionInfo> {
+    return sessionRepository.moveSession(this.db, input);
   }
 
   async upsertScriptWorkflowDefinition(

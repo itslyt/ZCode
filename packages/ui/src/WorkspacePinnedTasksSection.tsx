@@ -8,6 +8,7 @@ import { useGlobalTaskList } from "@/hooks/useGlobalTaskList.js";
 import { useLocalWorkspaceScopes } from "@/hooks/useLocalWorkspaceScopes.js";
 import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { useTaskPermanentDelete } from "@/hooks/useTaskPermanentDelete.js";
+import { useRequestTaskMoveToProject } from "@/store/taskMoveToProjectStore.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { buildTaskWorkspaceKey } from "@/lib/taskQueryCache.js";
 import { compareZCodeTaskListItems } from "@/lib/taskListOrdering.js";
@@ -73,6 +74,7 @@ export function WorkspacePinnedTasksSection({
 }) {
   const { intl } = useZCodeIntl();
   const deleteTaskPermanently = useTaskPermanentDelete();
+  const requestTaskMoveToProject = useRequestTaskMoveToProject();
   const baseServices = useBaseWorkspaceServices();
   const scopedWorkspaceTabs = useLocalWorkspaceScopes({
     workspaceTabs,
@@ -591,6 +593,12 @@ export function WorkspacePinnedTasksSection({
             intl={intl}
             onDeleteTask={() => {
               void deleteTaskPermanently(contextMenuItem, contextMenuServices.zcodeTaskService);
+            }}
+            onMoveTaskToProject={() => {
+              requestTaskMoveToProject({
+                task: contextMenuItem,
+                zcodeTaskService: contextMenuServices.zcodeTaskService,
+              });
             }}
             onTogglePinTask={(_taskId, pinned) => {
               if (contextMenuItem.workspaceIdentity) {
