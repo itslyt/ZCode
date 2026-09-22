@@ -212,7 +212,14 @@ Edit 锚点：  remove_from: "22:f1",  remove_to: "24:0e"
 | 成功路径把**整个新文件**的哈希灌进 served，首次编辑后「只允许改看过的行」形同虚设          | 只并回传区域实际渲染的行                                |
 | 拒绝路径直接 return，**不写** served，错误信息里刚给出的锚点不算看过，模型照抄必然二次失败 | 拒绝路径也写，且与成功路径共用 `writeAnchoredReadState` |
 
-拒绝路径只在**确实渲染了区域**时才写（`stale` / `ambiguous`）；`unserved` / `malformed` / `reversed_range` 不渲染任何内容，不能顺手把读状态刷成「整文件已读」，那会白白绕过 `Write`/`Edit` 的「先读后写」前置条件。`ambiguous` 也从「叫模型再读一次」改成回传区域锚点——否则同样把 reject-and-serve 省下的往返还回去。
+拒绝路径只在**确实渲染了区域**时才写（`stale` / `ambiguous`）；`unserved` / `malformed` / `reversed_range` 不渲染任何内容，连 served 也不用并。`ambiguous` 也从「叫模型再读一次」改成回传区域锚点——否则同样把 reject-and-serve 省下的往返还回去。
+
+**served 集合与门禁字段是两件事**（报告 §6，修复引入的缺陷）：第一版修法把两者混在一个函数里写，顺带把 `isPartialView` 从 `true` 翻成 `false`、`content` 换成整文件，于是模型只要触发一次**会被拒绝**的锚点编辑就拿到「整文件已读」，随后能用 `Edit`/`Write` 覆盖它从未读过的位置。现在拆开：
+
+- 拒绝路径只并 `servedAnchors`，不碰 `content` / `isPartialView` / `readAt` / `revision`。拒绝是零副作用的，模型并没有因此读到更多内容；刷新 `readAt` 也等于替模型把门禁基准推到一次它并未读取的动作上。
+- 成功路径保留旧的 `isPartialView`（取门禁实际会选中的那条，即同路径 `readAt` 最新的条目），不再无条件置 `false`。锚点编辑可以在只读了部分内容的文件上成功——锚点是内容见证的，不需要整文件视图。
+
+`partial view` 是可达的：整文件 Read 一个超限文件会返回截断结果并置 `truncatedByTokenCap`（实测 3001 行文件返回 515 行，读状态即 `isPartialView: true`）。
 
 **回传锚点的区间**三个叠加缺陷一并修掉：`end` 被丢弃、区间用原始内容索引却作用在新内容上、窗口重叠时后一个区块被整个丢弃。现在 `applyAnchorEdits` 直接回报每条编辑在**新内容**里的落点（并平移倒序处理带来的位移），`buildUpdatedAnchors` 按区间合并重叠/相接的窗口。
 
