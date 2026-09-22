@@ -89,7 +89,7 @@ const CODING_ONLY_TOOLS = [
   "WebSearch",
   "Skill",
   "Agent",
-  "Task",
+  "SendMessage",
   "TaskOutput",
   "TaskStop",
   "AskUserQuestion",
@@ -106,6 +106,12 @@ const CODING_ONLY_TOOLS = [
  *
  * 只影响内置工具：MCP / 插件工具走各自的注册路径，不受这份名单影响；
  * 会话显式传入的 `toolAllowlist` 仍然优先（用户在会话级可以要回完整工具面）。
+ *
+ * 委派面只留子代理必需的一套：Agent（拉起）+ SendMessage（后台子代理的续聊通道，
+ * Agent 自己的返回文案就写着 "use SendMessage with to: <agentId>"）+ TaskOutput/TaskStop
+ * （后台任务的读输出与停止，后台 Bash 也走这条）。去掉其中任何一个都会让后台模式变成半截能力，
+ * 与 DSH 保留 subagent + job_output/job_kill 是同一个取舍。Task（配置门控的旧入口）与
+ * ReadSessionContext / ListModels 不进名单。
  */
 export function resolveBuiltInToolAllowlist(
   config: AgentRuntimeConfig,

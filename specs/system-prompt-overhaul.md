@@ -175,14 +175,14 @@ identity 段 6656 → **6132**（2044 tokens）；env_info 含 3 条提交时由
 ### 工具面（白名单）
 
 `core/src/runtime/helpers/tool-allowlist.ts` 新增 `CODING_ONLY_TOOLS`（18 个：Read/Write/Edit/Bash/Glob/Grep/
-TodoRead/TodoWrite/WebFetch/WebSearch/Skill/Agent/Task/TaskOutput/TaskStop/AskUserQuestion/EnterPlanMode/ExitPlanMode），
+TodoRead/TodoWrite/WebFetch/WebSearch/Skill/Agent/SendMessage/TaskOutput/TaskStop/AskUserQuestion/EnterPlanMode/ExitPlanMode），
 作为 `config.toolAllowlist` 缺席时的默认值。因为两个注册入口（首次装配与分支刷新）都读这个 helper，一处改动全覆盖。
 
 - 只影响**内置**工具：MCP 与插件工具走各自注册路径，不受影响。
 - 会话显式传入 `toolAllowlist` 仍然优先（可随时要回完整工具面）。
 - 工具定义全部保留在代码里，恢复 = 删掉 `?? CODING_ONLY_TOOLS` 这一处默认值。
 
-实测（`registerBuiltInTools` 实跑，含 Agent/Task 的实际会话值）：
+实测（`registerBuiltInTools` 实跑；Agent/SendMessage 在真实会话里由 subagentPort 门控注册）：
 
 | 指标             | 改前    | 改后                                                                            |
 | ---------------- | ------- | ------------------------------------------------------------------------------- |
@@ -217,11 +217,11 @@ TodoRead/TodoWrite/WebFetch/WebSearch/Skill/Agent/Task/TaskOutput/TaskStop/AskUs
 
 ### 下一步可选（未做，等用户决定）
 
-| 取舍                     | 省     | 依据                                                |
-| ------------------------ | ------ | --------------------------------------------------- |
-| 不注册计划模式 2 个工具  | 7 105  | 71 个 session 里 0 次调用                           |
-| 不注册委派/协调 6 个工具 | 8 427  | 共 3 次调用；若要保留子代理则只留 Agent             |
-| 两者都做                 | 15 532 | 工具面 18 900 → **~3 400**，相对原始 132 456 降 97% |
+| 取舍                                                    | 省    | 依据                                         |
+| ------------------------------------------------------- | ----- | -------------------------------------------- |
+| 计划模式 2 个工具                                       | 7 105 | **已决定保留**（用户：plan 先留着）          |
+| 委派面：Task / ReadSessionContext / ListModels 不进名单 | 2 359 | **已实施**：只留子代理必需的一套             |
+| 委派面再删 SendMessage / TaskOutput / TaskStop          | 3 234 | 未做：会让后台子代理与后台 Bash 变成半截能力 |
 
 ### 与 DSH 对比
 
