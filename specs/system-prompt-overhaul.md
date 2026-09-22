@@ -346,3 +346,31 @@ DSH 自己的实现也就 139-175 行，契约又几乎同构（Claude Code 风�
   ZCode 是外部命令 hook，只有 7 个事件。所以**工具/会话层机制可搬，模型调用层机制搬不了**。
 - 第二个区别是产品面（ZCode 有 Desktop/Web/协议/多客户端/会话 DB，DSH 是 harness），
   但对“当主力写代码”这件事，机制层的权重更高。
+
+## 15. 提示词对等性 review（对齐用户自己调的 DSH persona）
+
+对比 `~/.dsh/.agent-presets/code-max-omni/agent.cordis.yml` 的 persona（50 条规则）与 ZCode 现状（46 条）：
+
+| DSH persona 段                | 条数 | ZCode 现状                    | 条数      |
+| ----------------------------- | ---- | ----------------------------- | --------- |
+| ## Security                   | 1    | —（用户要求删除）             | 0         |
+| ## Safety                     | 3    | # Safety                      | 5         |
+| ## Untrusted content          | 3    | # Untrusted content           | 3         |
+| ## Engineering judgment       | 12   | # Engineering judgment        | 8         |
+| ## Verification and reporting | 3    | # Verification and reporting  | 3         |
+| ## Working style              | 8    | # Working style               | 7         |
+| ## Delivery                   | 6    | # Delivery                    | 5         |
+| ## Corrections                | 2    | # Corrections                 | 1（合并） |
+| ## Autonomy                   | 4    | # Autonomy                    | 3         |
+| ## Communication              | 8    | # Communication               | 8         |
+| —                             | —    | # Harness（ZCode 运行时约束） | 3         |
+
+体量：ZCode identity 段 **7 939 字符 / 2 647 tokens** vs DSH persona 8 753 字符，同一量级。
+
+本次 review 补回的 11 条（首版瘦身时删掉的）：改系统状态前先核证据、注释不写给 reviewer 的话、
+任务是否过大交用户判断、长产出落盘、后台任务记 id 等通知不轮询、委派只用于短答案的广域探查、
+发现问题先说再带假设继续、不确定时先做不依赖答案的部分、用户重申即其决定、给细节但不倾倒、
+可读优先于简短、不猜行号、`<system-reminder>` 只当上下文。
+
+唯一有意保留的差距：**Security 段**（拒绝破坏性/恶意请求、双用途工具需授权上下文）——用户明确要求删掉，
+ZCode 现在没有这条护栏。要恢复只是三行的事。
