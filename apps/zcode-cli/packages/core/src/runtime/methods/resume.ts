@@ -112,7 +112,10 @@ export async function resumeFromStore(
     });
   }
   const persistedEnvInfo = extractPersistedEnvInfo(messages);
-  if (persistedEnvInfo) {
+  // 会话被移动到别的项目后，session.directory 是权威工作目录（工具用的就是它）：
+  // 快照里的 cwd 属于源项目，此时不能再把它当作"已提供"的 envInfo，否则 context source
+  // 会跳过探测，提示词里的 Primary working directory（以及 git 事实）停在源项目。
+  if (persistedEnvInfo && isSameWorkingDirectory(persistedEnvInfo.cwd, session.directory)) {
     this.config.envInfo = persistedEnvInfo;
   }
   const shellRestore = await restoreSessionShellEnvironmentSelectionForResume(this, {
@@ -366,6 +369,11 @@ function hasRestoredTitleEvent(
     const payload = event.payload as { source?: unknown; title?: unknown };
     return payload.title === title && payload.source === source;
   });
+}
+
+function isSameWorkingDirectory(left: string, right: string): boolean {
+  const normalize = (value: string) => value.replace(/\\/g, "/").replace(/\/+$/, "") || "/";
+  return normalize(left) === normalize(right);
 }
 
 function extractPersistedEnvInfo(messages: MessageWithParts[]): EnvInfo | undefined {

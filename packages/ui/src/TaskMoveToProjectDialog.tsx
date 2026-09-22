@@ -87,6 +87,21 @@ export function TaskMoveToProjectDialog() {
           : {}),
         targetWorkspacePath: candidate.workspacePath,
       });
+      // 源项目不能再留着这个任务的打开态：pane 绑的是源 workspace，继续用会把旧根目录
+      // 和旧 Environment 提示词一直用下去（实测：同一 pane 里再问仍是源目录）。
+      // 清掉选中后，从目标项目重新打开会走 resume，按新的 session.directory 生效。
+      const sessionStore = useZCodeSessionStore.getState();
+      const sourceState = sessionStore.getWorkspaceState(
+        request.task.workspacePath,
+        request.task.workspaceIdentity,
+      );
+      if (sourceState?.activeTaskId === request.task.taskId) {
+        sessionStore.setActiveTaskId(
+          request.task.workspacePath,
+          null,
+          request.task.workspaceIdentity,
+        );
+      }
       toast(intl.formatMessage({ id: "taskList.movedToProject" }));
       settle();
     } catch (error) {

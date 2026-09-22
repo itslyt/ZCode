@@ -10,7 +10,8 @@
   - **运行中的任务禁止移动**（对话框内该任务不可选/给出禁用原因）。
   - **远程 workspace 的任务禁止移动**（入口可见，对话框给出「远程项目暂不支持移动会话」提示）。
   - **运行中的任务禁止移动**（对话框给出原因）：运行中的会话 cwd 已绑定源目录；持久化 running 可能滞后，有本地 runtime 状态时以它为准。
-  - 任务当前在 pane 中打开**不**阻止移动：resume 不写回 `session.directory`（只有 create/legacy 修复会写），打开中的 pane 只是继续用旧 workspace 跑，从目标项目重开后即生效。
+  - 任务当前在 pane 中打开**不**阻止移动：移动成功后**清掉源项目里该任务的打开态**（pane 绑的是源 workspace，留着会继续用旧根目录与旧 Environment 提示词），从目标项目重新打开即按新根 resume。
+  - **提示词里的根目录必须跟着走**：resume 时若持久化 env 快照的 `cwd` 与 `session.directory` 不一致（移动后的正常情况），丢弃该快照、让 context source 按新目录重新探测，否则 Primary working directory / git 事实会停在源项目。
   - **目标项目只列本地可用目录**（远程项目不作为目标）。
   - 移动后该任务的 git checkpoint 留在源工作区目录（按 `getWorkspaceHash(workspacePath)` 存放），从新项目不可达，不主动删除。
   - 不迁移工作区记忆、不改写历史消息里的绝对路径、不处理分享链接（用户不使用这些能力）。
@@ -68,3 +69,5 @@
 - 回归修复实测（真实数据，验证后已回滚）：置顶区里属于 default（无文件夹工作区）的任务
   `sess_44959a56` 移到 LLMentor 成功（session/index 双写、pinned 保留）；刚打开成为 active 的任务
   再次打开对话框只列候选项目、不再出现「正在打开」拦截。
+- 根目录跟随实测（用户提供的测试会话）：`sess_2e1f925c` 的持久化 env 快照 cwd 仍是 default，移到 server 后冷开问目录，答 `…/packages/server`（新根）；
+  `sess_88d90c26` 在 server pane 中问得 `…/packages/server` → 移动到 LLMentor 后源 pane 被清空 → 从 LLMentor 重开再问得 `…/Work/LLMentor`。
