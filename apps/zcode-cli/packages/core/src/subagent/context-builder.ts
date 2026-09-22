@@ -8,7 +8,6 @@ import {
   type ContextSection,
   type EnvInfo,
 } from "../context/index.js";
-import { buildCliPrefixSection } from "../context/sections/cli-prefix.js";
 import { buildCurrentDateSection } from "../context/sections/current-date.js";
 import { buildRequestUserContextSection } from "../context/sections/request-user-context.js";
 import { buildSkillsSection } from "../context/sections/skills.js";
@@ -104,7 +103,7 @@ export function createSubagentContextBuilder(
 }
 
 function buildSubagentContextSections(config: SubagentContextBuilderConfig): ContextSection[] {
-  const sections: ContextSection[] = [buildCliPrefixSection()];
+  const sections: ContextSection[] = [];
   const agentPrompt = config.agentPrompt.trimEnd();
   if (agentPrompt) {
     sections.push(

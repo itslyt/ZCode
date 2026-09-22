@@ -29,7 +29,6 @@ export type {
 // -----------------------------------------------
 
 export type ContextSource =
-  | "cli_prefix" // CLI / 产品身份前缀
   | "identity" // Agent 基础描述
   | "env_info" // 环境信息 (cwd, platform, git repo boolean)
   | "system_context" // git snapshot context

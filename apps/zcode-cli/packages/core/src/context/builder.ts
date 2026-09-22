@@ -12,7 +12,6 @@ import type {
 } from "./types.js";
 import type { ToolRegistry } from "../tool/registry.js";
 import { estimateTokens } from "./utils.js";
-import { buildCliPrefixSection } from "./sections/cli-prefix.js";
 import { buildIdentitySection } from "./sections/identity.js";
 import { buildWorkflowActorIdentitySection } from "./sections/workflow-actor.js";
 import { buildEnvInfoSection, buildGitSystemContextSection } from "./sections/env-info.js";
@@ -96,13 +95,9 @@ export class ContextBuilder {
     }
     const isWorkflowActor = workflowActor !== undefined;
 
-    // 1. CLI / product prefix. Keep this as the short leading identity block.
-    // 「You are ZCode, an interactive coding agent」对一个
-    // 只对脚本说话、可能连读文件工具都没有的子代理是错的身份，且走在正确身份段前面。
-    if (!isWorkflowActor) {
-      sections.push(buildCliPrefixSection());
-    }
-
+    // 自用 fork：不再单独发 cli_prefix 段。它与下面 identity 段的首句是同一个身份（“你是 ZCode”），
+    // 单独成条只为了给 42 字符加一个 cache breakpoint，收益可忽略；
+    // 工作流子代理走 workflowActor 分支、本来就不注入它。
     // 2. Stable agent behavior or custom prompt body
     if (hasCustomSystemPrompt) {
       sections.push(
@@ -225,25 +220,11 @@ export class ContextBuilder {
   private assembleSystemMessages(sections: ContextSection[]): ModelInputMessage[] {
     const messages: ModelInputMessage[] = [];
 
-    const cliPrefixContent = buildSectionContent(
-      sections.filter(
-        (section) => section.injectionTarget === "system" && section.source === "cli_prefix",
-      ),
-    );
-    if (cliPrefixContent) {
-      messages.push({
-        role: "system",
-        content: cliPrefixContent,
-        cacheControl: EPHEMERAL_CACHE_CONTROL,
-      });
-    }
-
     const stableBodyContent = buildSectionContent(
       sections.filter(
         (section) =>
           section.injectionTarget === "system" &&
-          section.cacheHint === "stable" &&
-          section.source !== "cli_prefix",
+          section.cacheHint === "stable",
       ),
     );
     if (stableBodyContent) {
