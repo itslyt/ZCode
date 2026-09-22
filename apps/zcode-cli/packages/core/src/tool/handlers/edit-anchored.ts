@@ -37,7 +37,11 @@ import {
 import { collectServedAnchors, mergeServedAnchors } from "../anchor-served.js";
 import { createStructuredPatch } from "../diff.js";
 import { resolveWorkspacePath } from "../path-policy.js";
-import { createReadFileStateKey, normalizeReadFileStateMtimeMs } from "../read-file-state.js";
+import {
+  createReadFileStateKey,
+  findLatestReadFileState,
+  normalizeReadFileStateMtimeMs,
+} from "../read-file-state.js";
 import { createReadFileStateMetadataFromEntry } from "../read-file-state-metadata.js";
 import type {
   ReadFileStateEntry,
@@ -140,15 +144,12 @@ const editAnchoredHandler: ToolHandler = async (input, context) => {
     // 拒绝路径同样要落 served：错误信息里刚把该区域的新锚点展示给模型了，
     // 不并进去的话，模型照抄这些锚点重发会被判 unserved——reject-and-serve 变死循环。
     //
-    // 只在确实渲染了区域时才写（stale / ambiguous）。unserved / malformed / reversed
-    // 不渲染任何内容，不能顺手把读状态刷成「整文件已读」——那会白白绕过
-    // Write/Edit 的「先读后写」前置条件。
+    // 只并 served，不碰门禁字段：拒绝是零副作用的，模型并没有因此读到更多内容。
+    // unserved / malformed / reversed 不渲染任何内容，连 served 也不用并。
     if (failure.servedHashes.length > 0) {
-      writeAnchoredReadState({
+      mergeServedAnchorsAfterRejection({
         context,
         filePath,
-        content,
-        revision: read.revision,
         servedHashes: failure.servedHashes,
       });
     }
@@ -184,8 +185,8 @@ const editAnchoredHandler: ToolHandler = async (input, context) => {
   const updatedAnchors = buildUpdatedAnchors(newContent, applied.changedRanges);
 
   // 只并「回传里实际渲染给模型的行」。把整个文件的哈希都灌进 served 会让
-  // “只允许改看过的行”这条硬约束在首次编辑之后彻底失效。
-  writeAnchoredReadState({
+  // 「只允许改看过的行」这条硬约束在首次编辑之后彻底失效。
+  writeReadStateAfterAnchoredEdit({
     context,
     filePath,
     content: newContent,
@@ -220,13 +221,15 @@ function editAnchoredFailure(message: string): ToolHandlerFailure {
 // -----------------------------------------------
 
 /**
- * 把这次实际展示给模型的行哈希并进 served，并刷新读状态。
+ * 成功路径：刷新读状态，并把这次渲染给模型的行并进 served。
  *
- * 成功与拒绝两条路径走**同一个**写入逻辑：差别只在 servedHashes 来自哪个渲染结果，
- * 而不是「拒绝路径不写」——早先拒绝路径直接 return，导致错误信息里刚给出的锚点不算
- * 看过，模型照抄必然二次失败。
+ * `isPartialView` 沿用旧值而不强行置 false。`Edit`/`Write` 的「先读后写」门禁就是
+ * `!lastRead || lastRead.isPartialView`（`edit.ts:494`、`write.ts:284`），而锚点编辑可以
+ * 在一个只读了部分内容的文件上成功（锚点是内容见证的，不需要整文件视图）。强行置 false
+ * 等于把模型没读过的部分也标成「已读」，让 `Edit`/`Write` 能改它从未看过的位置。
+ * 旧值来自门禁实际会选中的那条（同路径 readAt 最新的条目），所以行为与改动前一致。
  */
-function writeAnchoredReadState(input: {
+function writeReadStateAfterAnchoredEdit(input: {
   context: ToolExecutionContext;
   filePath: string;
   content: string;
@@ -238,13 +241,14 @@ function writeAnchoredReadState(input: {
 
   const key = createReadFileStateKey(input.filePath, 1, undefined);
   const previous = readFileState.get(key);
+  const gateEntry = findLatestReadFileState(readFileState, input.filePath);
 
   const entry: ReadFileStateEntry = {
     path: input.filePath,
     content: input.content,
     offset: undefined,
     limit: undefined,
-    isPartialView: false,
+    isPartialView: gateEntry?.isPartialView ?? true,
     readAt: new Date(),
     sourceTool: TOOL_NAME,
     revisionId: input.revision?.id,
@@ -257,6 +261,47 @@ function writeAnchoredReadState(input: {
 
   readFileState.set(key, entry);
   recordReadFileStateMetadata(input.context, entry);
+}
+
+/**
+ * 拒绝路径：**只**把这次渲染给模型的行并进 served，不碰任何门禁字段。
+ *
+ * 拒绝是零副作用的：模型只是被拒绝了一次，并没有因此读到更多内容。早先这里复用了成功
+ * 路径的写法，把 `content` 换成整文件、`isPartialView` 翻成 false，于是模型对一个只读了
+ * 30 行的 3000 行文件，只要先做一次**会被拒绝**的锚点编辑（stale 很常见——外部 formatter、
+ * 手动保存都会触发），就拿到了「整文件已读」，随后能用 `Edit`/`Write` 覆盖任意位置。
+ *
+ * 这里也不刷新 `readAt`：门禁按同路径 readAt 最新的条目选基准，刷新它等于替模型把
+ * 「基准」推到一次它并未读取的动作上。
+ */
+function mergeServedAnchorsAfterRejection(input: {
+  context: ToolExecutionContext;
+  filePath: string;
+  servedHashes: readonly string[];
+}): void {
+  const readFileState = input.context.readFileState;
+  if (!readFileState) return;
+
+  const existing = findLatestReadFileState(readFileState, input.filePath);
+  if (existing) {
+    existing.servedAnchors = mergeServedAnchors(existing.servedAnchors, input.servedHashes);
+    recordReadFileStateMetadata(input.context, existing);
+    return;
+  }
+
+  // 没有任何读状态时，served 需要有地方放。建一条保守条目：门禁字段一律按「没读全」处理，
+  // 不提供任何 Edit/Write 可用的依据。
+  const entry: ReadFileStateEntry = {
+    path: input.filePath,
+    content: "",
+    offset: undefined,
+    limit: undefined,
+    isPartialView: true,
+    readAt: new Date(),
+    sourceTool: TOOL_NAME,
+    servedAnchors: mergeServedAnchors(undefined, input.servedHashes),
+  };
+  readFileState.set(createReadFileStateKey(input.filePath, 1, undefined), entry);
 }
 
 function recordReadFileStateMetadata(
