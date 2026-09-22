@@ -1,3 +1,4 @@
+import { isRemoteWorkspaceIdentity } from "@zcode/shared";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button.js";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog.js";
@@ -6,8 +7,11 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
 import { useTabStore } from "@/store/TabStoreProvider.js";
 import { isWorkspaceTab } from "@/store/tabStore.js";
+import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 import { useTaskMoveToProjectStore } from "@/store/taskMoveToProjectStore.js";
 import { useWorkspaceDisplayNameStore } from "@/store/workspaceDisplayNameStore.js";
+
+const RUNNING_RUNTIME_STATUSES = new Set(["creating", "restoring", "streaming"]);
 
 function resolveWorkspaceKey(workspacePath: string, workspaceIdentity?: string | null): string {
   return workspaceIdentity?.trim() || workspacePath;
@@ -24,6 +28,36 @@ export function TaskMoveToProjectDialog() {
   const tabs = useTabStore((state) => state.tabs);
   const displayNames = useWorkspaceDisplayNameStore((state) => state.names);
   const [moving, setMoving] = useState(false);
+  const sourceWorkspaceState = useZCodeSessionStore((state) =>
+    request
+      ? state.getWorkspaceState(request.task.workspacePath, request.task.workspaceIdentity)
+      : undefined,
+  );
+
+  // 运行中、正在打开、远程来源都不允许移动：
+  // 运行中的任务 cwd 已经绑定源目录；打开的 pane 会带着源 workspace 重新 resume，把绑定写回去；
+  // 远程 workspace 的会话与本地项目不同源，v1 不支持。
+  const blockedReasonId = useMemo(() => {
+    if (!request) {
+      return null;
+    }
+    const task = request.task;
+    const sourceIdentity = task.workspaceIdentity?.trim();
+    if (sourceIdentity && isRemoteWorkspaceIdentity(sourceIdentity)) {
+      return "taskList.moveToProjectRemoteBlocked";
+    }
+    const runtimeStatus = sourceWorkspaceState?.taskRuntimeByTaskId[task.taskId]?.status;
+    if (
+      task.status === "running" ||
+      (runtimeStatus && RUNNING_RUNTIME_STATUSES.has(runtimeStatus))
+    ) {
+      return "taskList.moveToProjectRunningBlocked";
+    }
+    if (sourceWorkspaceState?.activeTaskId === task.taskId) {
+      return "taskList.moveToProjectOpenBlocked";
+    }
+    return null;
+  }, [request, sourceWorkspaceState]);
 
   const candidates = useMemo(() => {
     if (!request) {
@@ -54,7 +88,7 @@ export function TaskMoveToProjectDialog() {
   }, [displayNames, request, tabs]);
 
   const handleMove = async (candidate: { workspacePath: string }) => {
-    if (!request || moving) {
+    if (!request || moving || blockedReasonId) {
       return;
     }
     setMoving(true);
@@ -91,7 +125,11 @@ export function TaskMoveToProjectDialog() {
           <DialogHeader className="space-y-2">
             <DialogTitle>{intl.formatMessage({ id: "taskList.moveToProjectTitle" })}</DialogTitle>
           </DialogHeader>
-          {candidates.length === 0 ? (
+          {blockedReasonId ? (
+            <p className="text-ui-sm text-foreground-subtle">
+              {intl.formatMessage({ id: blockedReasonId })}
+            </p>
+          ) : candidates.length === 0 ? (
             <p className="text-ui-sm text-foreground-subtle">
               {intl.formatMessage({ id: "taskList.moveToProjectEmpty" })}
             </p>
