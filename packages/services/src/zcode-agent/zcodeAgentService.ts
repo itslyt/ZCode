@@ -3679,8 +3679,9 @@ export function createZCodeAgentService(
     },
 
     async deleteConversation(params: ZCodeAgentSessionTarget) {
-      // 物理删除为观察者发起的管理操作：不为已回收会话拉起 runtime。
-      const client = await getReadOnlyClient(params, "existing-only");
+      // 物理删除同样是管理操作：agent 空闲被回收后仍必须能删（否则索引已 tombstone、
+      // 磁盘数据却一直留着，正是「删除要释放空间」的反例）。
+      const client = await getReadOnlyClient(params);
       return client.request(
         V4_METHODS.conversationDelete,
         { sessionId: params.sessionId },
@@ -3690,7 +3691,9 @@ export function createZCodeAgentService(
 
     async moveConversation(params: ZCodeAgentMoveConversationParams) {
       // 移动是观察者发起的管理操作：不为已回收会话拉起 runtime。
-      const client = await getReadOnlyClient(params, "existing-only");
+      // 管理操作必须能作用于已回收 runtime 的会话：existing-only 在 agent 空闲被回收后
+      // 会直接抛 runtime unavailable，导致移动/删除在「项目当前没在跑」时全部失败。
+      const client = await getReadOnlyClient(params);
       return client.request(
         V4_METHODS.conversationMove,
         {

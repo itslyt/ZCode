@@ -1463,7 +1463,6 @@ const zhCN: Record<string, string> = {
   "taskList.moveToProjectEmpty": "没有其他可用的本地项目",
   "taskList.moveToProjectRemoteBlocked": "远程项目暂不支持移动会话",
   "taskList.moveToProjectRunningBlocked": "任务正在运行，结束后再移动",
-  "taskList.moveToProjectOpenBlocked": "该任务正在打开，先切换到其他任务再移动",
   "taskList.moveToProjectFailed": "移动任务失败，请重试",
   "taskList.movedToProject": "已移动到目标项目",
   "taskList.openInSplitPane": "在分屏打开",

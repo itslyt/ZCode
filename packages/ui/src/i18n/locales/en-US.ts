@@ -1556,7 +1556,6 @@ const enUS: Record<string, string> = {
   "taskList.moveToProjectEmpty": "No other local projects available",
   "taskList.moveToProjectRemoteBlocked": "Moving sessions is not supported for remote projects",
   "taskList.moveToProjectRunningBlocked": "The task is running. Move it after it finishes.",
-  "taskList.moveToProjectOpenBlocked": "The task is open. Switch to another task before moving it.",
   "taskList.moveToProjectFailed": "Failed to move the task. Please retry.",
   "taskList.movedToProject": "Moved to the target project",
   "taskList.openInSplitPane": "Open in split view",

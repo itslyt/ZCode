@@ -9,7 +9,8 @@
 - v1 边界：
   - **运行中的任务禁止移动**（对话框内该任务不可选/给出禁用原因）。
   - **远程 workspace 的任务禁止移动**（入口可见，对话框给出「远程项目暂不支持移动会话」提示）。
-  - **任务正在运行、或正在 pane 中打开时禁止移动**（对话框给出原因）：运行中的 cwd 已绑定源目录；打开的 pane 会用源 workspace 重新 resume，把绑定写回源项目。
+  - **运行中的任务禁止移动**（对话框给出原因）：运行中的会话 cwd 已绑定源目录；持久化 running 可能滞后，有本地 runtime 状态时以它为准。
+  - 任务当前在 pane 中打开**不**阻止移动：resume 不写回 `session.directory`（只有 create/legacy 修复会写），打开中的 pane 只是继续用旧 workspace 跑，从目标项目重开后即生效。
   - **目标项目只列本地可用目录**（远程项目不作为目标）。
   - 移动后该任务的 git checkpoint 留在源工作区目录（按 `getWorkspaceHash(workspacePath)` 存放），从新项目不可达，不主动删除。
   - 不迁移工作区记忆、不改写历史消息里的绝对路径、不处理分享链接（用户不使用这些能力）。
@@ -19,6 +20,9 @@
 ## 状态所有者与接口
 
 数据层有两处绑定必须一起改，顺序固定：**先会话行，后任务索引**（会话行是 resume 根目录的权威来源）。
+
+管理类 RPC（移动、物理删除）不得使用 `existing-only` client 策略：agent 空闲被回收后它会直接抛 runtime unavailable，
+导致「项目当前没在跑」时移动/删除全部失败（现象是通用失败提示，索引已 tombstone 但磁盘数据没删）。两者都改为按需拉起只读 client。
 
 1. **会话行（CLI 会话库，权威）**
    - 新增 `SessionStorePort.moveSession({ sessionID, projectID, workspaceID?, directory })`；
@@ -61,3 +65,6 @@
 - 单测：`packages/services/test/taskIndexMove.test.ts` 覆盖 re-key 后状态保留（unread/pinned）、源列表清空、目标列表出现与幂等重试。
 - 坑位：dev 桌面里 Agent 进程不继承 `ZCODE_DATA_BASE_DIR`（Host 继承、Agent 落回 `~/.zcode`），
   隔离验证时会把移动写进真实会话库；验证后已把真实库改回原绑定。详见 `CUSTOM_DEV_WORKFLOW.md`。
+- 回归修复实测（真实数据，验证后已回滚）：置顶区里属于 default（无文件夹工作区）的任务
+  `sess_44959a56` 移到 LLMentor 成功（session/index 双写、pinned 保留）；刚打开成为 active 的任务
+  再次打开对话框只列候选项目、不再出现「正在打开」拦截。

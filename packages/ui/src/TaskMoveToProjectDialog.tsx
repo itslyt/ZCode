@@ -32,8 +32,7 @@ export function TaskMoveToProjectDialog() {
       : undefined,
   );
 
-  // 运行中、正在打开、远程来源都不允许移动：
-  // 运行中的任务 cwd 已经绑定源目录；打开的 pane 会带着源 workspace 重新 resume，把绑定写回去；
+  // 运行中与远程来源不允许移动：运行中的会话 cwd 已绑定源目录；
   // 远程 workspace 的会话与本地项目不同源，v1 不支持。
   const blockedReasonId = useMemo(() => {
     if (!request) {
@@ -42,9 +41,7 @@ export function TaskMoveToProjectDialog() {
     const task = request.task;
     return resolveTaskMoveBlockedReason({
       task,
-      taskId: task.taskId,
       runtimeStatus: sourceWorkspaceState?.taskRuntimeByTaskId[task.taskId]?.status,
-      activeTaskId: sourceWorkspaceState?.activeTaskId,
     });
   }, [request, sourceWorkspaceState]);
 
