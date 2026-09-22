@@ -296,3 +296,49 @@ PermissionRequest / SessionStart / Stop / UserPromptSubmit）、权限规则集�
 3. 拿真实任务并行跑一周：ZCode 干编码，DSH 继续当主力；对比两者在“长任务收尾”和“改完是否验证”上的差别；
 4. 再决定全量切。不建议一次性切完——DSH 那 6 个机制是你现在体验的来源，ZCode 只搬了提示词，
    机制还差一层。
+
+## 14. ZCode 能不能拥有 DSH 的机制层（结论：能，而且不用改 fork 代码）
+
+### 关键发现：ZCode 的 hook 是**配置**，不是代码
+
+hook 配置层级是 default → user → project → env → CLI（`config-factory.ts:213-217`），
+**user 层就是 `~/.zcode/cli/config.json` 的 `hooks.events`**，不经过 workspace 信任流程
+（project 层才需要 trust，见 `project-config.adapter.ts:63`）。所以搬机制**不需要改 core**，
+也就没有上游同步成本。
+
+### 契约能力（够不够搬，逐个核过）
+
+| 能力            | ZCode 现状                                                                                                                                               | 位置                                   |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| 事件            | 7 个：SessionStart / UserPromptSubmit / PreToolUse / PermissionRequest / PostToolUse / PostToolUseFailure / Stop                                         | `packages/shared/src/hooks.ts`         |
+| 输入            | stdin JSON：`hook_event_name` / `session_id` / `transcript_path` / `cwd` / `tool_name` / `tool_input`；env 有 `ZCODE_PROJECT_DIR` / `CLAUDE_PROJECT_DIR` | `hooks/configured-runner-input.ts`     |
+| 输出            | `additionalContext`（注入上下文）、`decision: block\|approve`、`reason`、`systemMessage`、`continue`、`hookSpecificOutput`                               | `hooks/output.ts`                      |
+| **Stop 可续跑** | `output.continue === true` 时把 `additionalContexts` 当 user-role 注入并 `return "continue"`（带 `stopHookContinuationCount` 防死循环）                  | `runtime/methods/turn-stop.ts:204-216` |
+
+第三行是关键：DSH 的 `agent/turn-stopping` 转向能力，ZCode 在 Stop 事件上**同样具备**。
+
+### 逐机制移植账（DSH 源码行数已实测）
+
+| DSH 机制             | 行数 | ZCode 挂点                                                                     | 可移植            | 成本                       |
+| -------------------- | ---- | ------------------------------------------------------------------------------ | ----------------- | -------------------------- |
+| `todo-closeout`      | 165  | Stop + `continue: true` + additionalContext；待办状态从 `transcript_path` 读   | ✅                | ~150-200 行脚本 + 1 条配置 |
+| `edit-fail-coach`    | 139  | PostToolUseFailure + additionalContext                                         | ✅                | 同上                       |
+| `rollout-budget`     | 175  | Stop/PostToolUse；用量取自 `turn_usage` 表或 transcript                        | ✅（需定用量源）  | 同上                       |
+| `tool-result-budget` | 140  | **已原生**：`tool/executor/result-serialization.ts` 有字符预算 + artifact 落盘 | ❌ 不需搬         | 0                          |
+| `deliberation-gate`  | 401  | 拦的是**模型调用/思考流**，不在 7 个事件里                                     | ❌ hooks 覆盖不到 | 需 core 扩展点             |
+| `cot-drip`           | 145  | 同上；且已有 `zcode-patcher` 下发 effort                                       | ❌                | 看需要                     |
+
+合计：**3 个可用配置级 hook 搬过来（无 fork 改动），1 个已原生，2 个需要 core 扩展点**。
+DSH 自己的实现也就 139-175 行，契约又几乎同构（Claude Code 风格），所以这是“重写一遍”，不是“逆向工程”。
+
+### 这是不是两家最大的区别
+
+**行为上是的，架构上根因是扩展模型。**
+
+- DSH 自己就写着这句话（`todo-closeout.mjs` 顶部）：
+  "The persona asks for a closing `todo_write`; **a prompt is not enforcement**."
+  这正是你在两家之间的体感差异：DSH 在边界上强制执行，ZCode 目前只在提示词里请求。
+- 架构根因：DSH 是 in-process 插件，能拿到 `session/event`、`agent/turn-stopping`、模型调用等全部内部事件；
+  ZCode 是外部命令 hook，只有 7 个事件。所以**工具/会话层机制可搬，模型调用层机制搬不了**。
+- 第二个区别是产品面（ZCode 有 Desktop/Web/协议/多客户端/会话 DB，DSH 是 harness），
+  但对“当主力写代码”这件事，机制层的权重更高。
