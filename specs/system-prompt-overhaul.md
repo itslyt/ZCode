@@ -429,3 +429,39 @@ local 47.7~48.7%——按错误口径算都是 ~48%，按正确口径都是 ~94%
   要再降只能减少工具结果体积/请求数，而不是继续改提示词。
 - 提示词侧已无可榨空间：静态前缀（工具 27.5k + 人设 7.9k + 环境 1.4k）全部落在命中区间内，
   继续压缩只降低冷启动成本，不影响命中率。
+
+## 18. 去掉 git 段（用户自 push，不需要分支信息）
+
+用户自述“git 我都是自己 push 的，不需要 ai push 和 pr，所以 ai 只需要默认 commit 就行”，
+要求把 `Current branch` / `Main branch (you will usually use this for PRs)` / `Git user` 一并去掉。
+
+处理：
+
+1. `builder.ts` 不再 push `buildGitSystemContextSection`；该函数、`buildGitSystemContextContent`、
+   三个标签常量、未使用的 `GIT_LABEL` / `NOT_A_GIT_REPOSITORY` 一并删除；`ContextSource` 去掉 `system_context`。
+2. 环境段保留 `- Is a git repository: yes|no`（告诉模型 cwd 是否是仓库，与“允许 commit”相容）。
+3. 人设 Delivery 段新增一条：可以 commit，但不 push / force-push / 开 PR（远端操作由用户自己做）。
+
+真机核验（git 仓库内）：请求里 `Current branch` / `Main branch` / `Git user` 全部消失，`# Environment` 保留。
+
+## 19. 缓存命中率口径 bug（状态栏胶囊）
+
+现象：同一条会话（`sess_88e90a86-…`）上下文面板显示“平均缓存命中率 95.7%”，
+而状态栏胶囊显示“缓存命中 49%”。对账：该会话 `input_tokens = 9 099`、`cache_read = 8 704`
+→ 正确值 8 704 / 9 099 = **95.7%**；49% = 8 704 / (9 099 + 8 704)，把命中算进了分母两次。
+
+根因：`packages/ui/src/v4/sessionStatsView.ts` 把 `rawInputTokens` 当作“未缓存输入”，
+再 `inputSide = uncachedInput + cacheRead`；但用量库的 `inputTokens` 已经是 total input（含命中）。
+同一份口径，`usage-stats-builder.ts` 已经写了注释说明“分母不能再加 cacheRead”，胶囊漏了。
+`contracts` 里 `rawInputTokens` 的注释也写成了“未缓存输入”，是误导源。
+
+修复：
+
+- `buildSessionStatsView`：分母改为 `rawInputTokens`；`uncachedInputTokens = input - cacheRead`；
+  `totalTokens = input + output`（原先多算了一份输入，状态栏“3.3万 tok”实际应为 2.4万）。
+- `buildTurnStatsView`：同理改用 `turn.inputTokens` 作分母（并对 cacheRead 做上封顶）。
+- 修正 `session-store.port.ts` 里 `rawInputTokens` 的注释。
+- 单测 fixture 改为真实口径（`rawInputTokens` 为总量）并改掉测试名；
+  `TSX_TSCONFIG_PATH=packages/ui/tsconfig.json node --import tsx --test packages/ui/test/sessionStatsView.test.ts` 7/7 通过。
+
+为什么保留 49% 的另一个数：上下文面板那个 95.7% 走 `session-mapper.ts` 的 `cacheReadTokens / inputTokens`，是对的，不动。
