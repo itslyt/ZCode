@@ -229,6 +229,16 @@ Edit 锚点：  remove_from: "22:f1",  remove_to: "24:0e"
 
 **未处理（观察，未定性为缺陷）**：`servedAnchors` 只增不减、无上限。修正后它的增长只来自真正展示过的行（不再是一次编辑灌全文），单次 Read 的上界就是文件行数，与既有 `content` 快照同量级。加硬上限会引入新失败模式（模型手里的旧锚点被误判 unserved），目前证据不足以支持，先留观察。
 
+### 阶段 1.2：§7 复验发现（已完成 / 一项待决策）
+
+**已修：内容清空后渲染出假行**（报告 §7.2）。`splitLines("")` 返回 `[""]` 而不是空数组，所以 `lines.length === 0` 这个判据在空内容上不成立。删光全文后 `buildUpdatedAnchors("")` 会凭空渲染出 `1:RVM2│`，而 `RVM2` 就是 `hashLineContent("")`——并进 served 之后，该文件里任意空行都变成「已读」，模型可以引用它们的锚点。这是 §1 那类问题（放宽方向）的缩小版，已改用 `isEmptyContent` 判据，`formatAnchorRegion` 同款问题一并修掉。
+
+**待决策：拒绝路径并进的 served 不跨会话**（报告 §7.1）。`f9730f8` 让拒绝路径也写 served 以闭合 reject-and-serve 循环，但这个闭合只在单次会话内成立：handler 返回 `ToolHandlerFailure` → `call-runner` 转成异常抛出 → catch 分支的 `createErrorResult`（`executor/errors.ts:6`）不携带 `readFileStateMetadata`，所以 `tool-part-metadata.ts:39` 写不出 `readFileState`；且 hydrator 的 `isCompletedToolPart`（`read-file-state-hydrator.ts:190`）只接受 `status: "completed"` 的部件。resume 后模型从 stale 错误信息里抄来的锚点又会变 unserved，需要重新 Read。
+
+影响是**保守方向**的：多一次 Read，没有安全或正确性风险。修它需要改 4 处：`createErrorResult` 增一个可选参数、`call-runner` catch 分支传入已在作用域内的 `readFileStateMetadata`、`turn-tools.ts:337` 失败分支的 metadata 带上它、hydrator 接受 error 部件。前两处对其它工具是惰性的（它们不在失败时写读状态），但 hydrator 那处会放宽所有工具 error 部件的恢复语义，而验证它需要驱动两段真实会话（resume 前后）。
+
+**本轮不做**，理由是验证成本而不是复杂度：在一个共享的错误/持久化层上落一个只做过单测的改动，正是 §6 的成因。要做就在单独一轮里做，并把 resume 端到端跑通。
+
 ### 阶段 2：实测后再决定主力地位
 
 用真实会话对比 `EditAnchored` 与 `Edit` 的：首次成功率、失败后恢复轮次、输出 token、错行落盘次数。**只有在数据支持时才把锚点工具写进提示词作为首选**；否则保持「两个都注册、模型自选」。
