@@ -16,16 +16,37 @@ import {
   formatAnchorRegion,
   resolveAnchorEdits,
 } from "../src/tool/anchor-resolve.js";
-
-/** 把一段内容变成「模型看过的锚点集合」——等价于 Read 的副作用。 */
-function servedOf(content: string): Set<string> {
-  return new Set(computeLineHashes(splitLines(content)));
-}
+import { mergeServedAnchors } from "../src/tool/anchor-served.js";
 
 /** 取第 line 行（1 起始）的锚点字符串。 */
 function anchorAt(content: string, line: number): string {
   const lines = splitLines(content);
   return formatAnchor(line, hashLineContent(lines[line - 1]!));
+}
+
+/** 把一次「展示给模型」的渲染结果并进 served——与 handler 的写入逻辑一致。 */
+function withServed(served: ReadonlySet<string>, rendered: readonly string[]): Set<string> {
+  return new Set(mergeServedAnchors([...served], rendered));
+}
+
+/** 模拟一次成功的锚点编辑，返回新内容、回传的锚点文本与更新后的 served。 */
+function editOnce(
+  content: string,
+  served: ReadonlySet<string>,
+  requests: { removeFrom: string; removeTo: string; replacementText: string }[],
+): { content: string; updatedText: string; served: Set<string>; changedRanges: { start: number; end: number }[] } {
+  const resolved = resolveAnchorEdits(content, served, requests);
+  assert.equal(resolved.status, "resolved");
+  if (resolved.status !== "resolved") throw new Error("unreachable");
+
+  const applied = applyAnchorEdits(content, resolved.edits);
+  const updated = buildUpdatedAnchors(applied.content, applied.changedRanges);
+  return {
+    content: applied.content,
+    updatedText: updated.text,
+    served: withServed(served, updated.servedHashes),
+    changedRanges: applied.changedRanges,
+  };
 }
 
 const CONTENT = [
@@ -38,6 +59,8 @@ const CONTENT = [
   '  return "bye " + name;',
   "}",
 ].join("\n");
+
+const servedAll = (content: string) => new Set(computeLineHashes(splitLines(content)));
 
 test("哈希是定长的，且同内容同哈希", () => {
   const hash = hashLineContent("const a = 1;");
@@ -55,10 +78,8 @@ test("空行也有哈希，且与普通内容不混淆", () => {
 test("哈希归一化容忍大小写与易混字符", () => {
   assert.equal(normalizeAnchorHash("ab3f"), "AB3F");
   assert.equal(normalizeAnchorHash(" AB3F "), "AB3F");
-  // Crockford：I/L→1、O→0
   assert.equal(normalizeAnchorHash("ABIF"), normalizeAnchorHash("AB1F"));
   assert.equal(normalizeAnchorHash("ABOF"), normalizeAnchorHash("AB0F"));
-  // 长度不对或含非法字符一律拒绝
   assert.equal(normalizeAnchorHash("AB3"), null);
   assert.equal(normalizeAnchorHash("AB3F5"), null);
 });
@@ -73,8 +94,8 @@ test("parseAnchor 解析行号与哈希，非法输入返回 null", () => {
 });
 
 test("快路径：行号未位移时直接命中", () => {
-  const served = servedOf(CONTENT);
-  const resolved = resolveAnchorEdits(CONTENT, served, [
+  const served = servedAll(CONTENT);
+  const result = editOnce(CONTENT, served, [
     {
       removeFrom: anchorAt(CONTENT, 2),
       removeTo: anchorAt(CONTENT, 2),
@@ -82,15 +103,9 @@ test("快路径：行号未位移时直接命中", () => {
     },
   ]);
 
-  assert.equal(resolved.status, "resolved");
-  if (resolved.status !== "resolved") return;
-  assert.equal(resolved.edits.length, 1);
-  assert.equal(resolved.edits[0]!.start, 1);
-  assert.equal(resolved.edits[0]!.end, 1);
-  assert.equal(resolved.edits[0]!.shifted, false);
-
+  assert.deepEqual(result.changedRanges, [{ start: 1, end: 1 }]);
   assert.equal(
-    applyAnchorEdits(CONTENT, resolved.edits),
+    result.content,
     [
       "function greet(name) {",
       "  const msg = `hi ${name}`;",
@@ -105,11 +120,8 @@ test("快路径：行号未位移时直接命中", () => {
 });
 
 test("自愈合：上方插入行后，旧行号对不上但哈希仍能唯一定位", () => {
-  const served = servedOf(CONTENT);
-  // 模型拿到的是原文的锚点
+  const served = servedAll(CONTENT);
   const staleFrom = anchorAt(CONTENT, 7);
-
-  // 文件被外部（或模型自己上一步）改过：顶部插入了 3 行
   const shifted = ["// 新注释 1", "// 新注释 2", "// 新注释 3", CONTENT].join("\n");
 
   const resolved = resolveAnchorEdits(shifted, served, [
@@ -118,18 +130,20 @@ test("自愈合：上方插入行后，旧行号对不上但哈希仍能唯一�
 
   assert.equal(resolved.status, "resolved");
   if (resolved.status !== "resolved") return;
-  // 原第 7 行现在在第 10 行
   assert.equal(resolved.edits[0]!.start, 9);
   assert.equal(resolved.edits[0]!.shifted, true);
 });
 
 test("自愈合遇到多处命中时拒绝，绝不错行", () => {
   const content = ["  return 1;", "  return 1;", "  return 1;"].join("\n");
-  const served = servedOf(content);
+  const served = servedAll(content);
 
   const resolved = resolveAnchorEdits(content, served, [
-    // 引用一个不存在的行号，迫使走哈希搜索路径；哈希在文件里出现 3 次
-    { removeFrom: `99:${hashLineContent("  return 1;")}`, removeTo: `99:${hashLineContent("  return 1;")}`, replacementText: "  return 2;" },
+    {
+      removeFrom: `99:${hashLineContent("  return 1;")}`,
+      removeTo: `99:${hashLineContent("  return 1;")}`,
+      replacementText: "  return 2;",
+    },
   ]);
 
   assert.equal(resolved.status, "failed");
@@ -140,10 +154,10 @@ test("自愈合遇到多处命中时拒绝，绝不错行", () => {
 });
 
 test("内容已变化时拒绝，并回传该区域当前锚点", () => {
-  const served = servedOf(CONTENT);
+  const served = servedAll(CONTENT);
   const staleFrom = anchorAt(CONTENT, 3);
-
   const changed = CONTENT.replace("  return msg;", "  return msg.trim();");
+
   const resolved = resolveAnchorEdits(changed, served, [
     { removeFrom: staleFrom, removeTo: staleFrom, replacementText: "  return msg;" },
   ]);
@@ -152,12 +166,11 @@ test("内容已变化时拒绝，并回传该区域当前锚点", () => {
   if (resolved.status !== "failed") return;
   assert.equal(resolved.reason, "stale");
 
-  const message = createAnchorFailureMessage({ content: changed, failure: resolved, total: 1 });
-  assert.match(message, /no longer exists/);
-  assert.match(message, /No edits were applied/);
-  // reject-and-serve：带上当前锚点，模型不必重读整个文件
-  assert.match(message, /Current anchors/);
-  assert.match(message, /return msg\.trim\(\);/);
+  const failure = createAnchorFailureMessage({ content: changed, failure: resolved, total: 1 });
+  assert.match(failure.text, /no longer exists/);
+  assert.match(failure.text, /No edits were applied/);
+  assert.match(failure.text, /Current anchors/);
+  assert.match(failure.text, /return msg\.trim\(\);/);
 });
 
 test("未展示过的锚点被拒绝", () => {
@@ -170,7 +183,7 @@ test("未展示过的锚点被拒绝", () => {
 });
 
 test("锚点格式错误与区间反向都给出可修正的提示", () => {
-  const served = servedOf(CONTENT);
+  const served = servedAll(CONTENT);
 
   const malformed = resolveAnchorEdits(CONTENT, served, [
     { removeFrom: "not-an-anchor", removeTo: "1:AB3F", replacementText: "x" },
@@ -186,52 +199,45 @@ test("锚点格式错误与区间反向都给出可修正的提示", () => {
 });
 
 test("空 replacement 删除行，多行 replacement 插入行", () => {
-  const served = servedOf(CONTENT);
+  const served = servedAll(CONTENT);
 
-  const deleted = resolveAnchorEdits(CONTENT, served, [
+  const deleted = editOnce(CONTENT, served, [
     { removeFrom: anchorAt(CONTENT, 5), removeTo: anchorAt(CONTENT, 5), replacementText: "" },
   ]);
-  assert.equal(deleted.status, "resolved");
-  if (deleted.status === "resolved") {
-    const result = applyAnchorEdits(CONTENT, deleted.edits);
-    assert.equal(splitLines(result).length, splitLines(CONTENT).length - 1);
-    assert.ok(!result.includes("\n\n\n"));
-  }
+  assert.equal(splitLines(deleted.content).length, splitLines(CONTENT).length - 1);
+  assert.ok(!deleted.content.includes("\n\n\n"));
 
-  const inserted = resolveAnchorEdits(CONTENT, served, [
+  const inserted = editOnce(CONTENT, served, [
     {
       removeFrom: anchorAt(CONTENT, 4),
       removeTo: anchorAt(CONTENT, 4),
       replacementText: "}\n\nexport const VERSION = 1;",
     },
   ]);
-  assert.equal(inserted.status, "resolved");
-  if (inserted.status === "resolved") {
-    assert.match(applyAnchorEdits(CONTENT, inserted.edits), /VERSION = 1;/);
-  }
+  assert.match(inserted.content, /VERSION = 1;/);
 });
 
 test("批量锚点编辑按倒序应用，前一条不移动后一条", () => {
-  const served = servedOf(CONTENT);
-  const resolved = resolveAnchorEdits(CONTENT, served, [
+  const served = servedAll(CONTENT);
+  const result = editOnce(CONTENT, served, [
     {
       removeFrom: anchorAt(CONTENT, 1),
       removeTo: anchorAt(CONTENT, 1),
       replacementText: "function greet(name) {\n  // 头部注释",
     },
-    { removeFrom: anchorAt(CONTENT, 7), removeTo: anchorAt(CONTENT, 7), replacementText: '  return "bye!";' },
+    {
+      removeFrom: anchorAt(CONTENT, 7),
+      removeTo: anchorAt(CONTENT, 7),
+      replacementText: '  return "bye!";',
+    },
   ]);
 
-  assert.equal(resolved.status, "resolved");
-  if (resolved.status !== "resolved") return;
-
-  const result = applyAnchorEdits(CONTENT, resolved.edits);
-  assert.match(result, /\/\/ 头部注释/);
-  assert.match(result, /return "bye!";/);
+  assert.match(result.content, /\/\/ 头部注释/);
+  assert.match(result.content, /return "bye!";/);
 });
 
 test("重叠区间被显式拒绝", () => {
-  const served = servedOf(CONTENT);
+  const served = servedAll(CONTENT);
   const resolved = resolveAnchorEdits(CONTENT, served, [
     { removeFrom: anchorAt(CONTENT, 1), removeTo: anchorAt(CONTENT, 3), replacementText: "a" },
     { removeFrom: anchorAt(CONTENT, 2), removeTo: anchorAt(CONTENT, 4), replacementText: "b" },
@@ -243,7 +249,7 @@ test("重叠区间被显式拒绝", () => {
 });
 
 test("相邻但不重叠的锚点区间不算冲突", () => {
-  const served = servedOf(CONTENT);
+  const served = servedAll(CONTENT);
   const resolved = resolveAnchorEdits(CONTENT, served, [
     { removeFrom: anchorAt(CONTENT, 1), removeTo: anchorAt(CONTENT, 1), replacementText: "a" },
     { removeFrom: anchorAt(CONTENT, 2), removeTo: anchorAt(CONTENT, 2), replacementText: "b" },
@@ -253,21 +259,221 @@ test("相邻但不重叠的锚点区间不算冲突", () => {
   assert.equal(findOverlappingAnchorEdits(resolved.edits), null);
 });
 
-test("编辑结果回传受影响区域的新锚点", () => {
-  const updated = ["const a = 1;", "const b = 2;", "const c = 3;"].join("\n");
-  const anchors = buildUpdatedAnchors(updated, [{ start: 1, end: 1 }]);
+// ============================================================
+// served 语义
+// ============================================================
+//
+// 下面这组是回归防线。此前测试的辅助函数把「served = 全文」当成了前提，于是整组测试
+// 对「served 被灌全文」这个缺陷结构上就是盲的。
 
-  assert.match(anchors, /1:[0-9A-Z]{4}│const a = 1;/);
-  assert.match(anchors, /2:[0-9A-Z]{4}│const b = 2;/);
-  // 回传的锚点必须能被解析回同一行
-  const secondLine = splitLines(anchors).find((line) => line.includes("const b = 2;"))!;
-  const parsed = parseAnchor(secondLine.slice(0, secondLine.indexOf("│")));
-  assert.equal(parsed?.line, 2);
-  assert.equal(parsed?.hash, hashLineContent("const b = 2;"));
+test("§1 一次编辑之后，从未展示过的行仍然被拒绝", () => {
+  const lines = Array.from({ length: 120 }, (_, index) => `const item${index + 1} = ${index + 1};`);
+  const content = lines.join("\n");
+
+  // Read 只展示了前 5 行
+  let served = new Set(computeLineHashes(lines.slice(0, 5)));
+  assert.equal(
+    resolveAnchorEdits(content, served, [
+      {
+        removeFrom: anchorAt(content, 100),
+        removeTo: anchorAt(content, 100),
+        replacementText: "const item100 = 999;",
+      },
+    ]).status,
+    "failed",
+  );
+
+  // 编辑第 3 行
+  const afterEdit = editOnce(content, served, [
+    {
+      removeFrom: anchorAt(content, 3),
+      removeTo: anchorAt(content, 3),
+      replacementText: "const item3 = 333;",
+    },
+  ]);
+  served = afterEdit.served;
+
+  // served 只应增加回传区域那几行，绝不能变成整个文件
+  assert.ok(served.size < 20, `served 不应被灌入全文，实际 ${served.size} 个哈希`);
+
+  // 第 100 行依旧没展示过 → 必须继续被拒
+  const far = resolveAnchorEdits(afterEdit.content, served, [
+    {
+      removeFrom: anchorAt(afterEdit.content, 100),
+      removeTo: anchorAt(afterEdit.content, 100),
+      replacementText: "const item100 = 999;",
+    },
+  ]);
+  assert.equal(far.status, "failed");
+  if (far.status === "failed") assert.equal(far.reason, "unserved");
 });
 
-test("formatAnchorRegion 渲染带锚点的区域", () => {
+test("§1 回传区域内的新锚点立即可用，不必重读", () => {
+  const content = ["const a = 1;", "const b = 2;", "const c = 3;"].join("\n");
+  const result = editOnce(content, servedAll(content), [
+    { removeFrom: anchorAt(content, 1), removeTo: anchorAt(content, 1), replacementText: "const a = 10;" },
+  ]);
+
+  const served = result.served;
+  const reedit = resolveAnchorEdits(result.content, served, [
+    {
+      removeFrom: anchorAt(result.content, 1),
+      removeTo: anchorAt(result.content, 1),
+      replacementText: "const a = 100;",
+    },
+  ]);
+  assert.equal(reedit.status, "resolved");
+});
+
+test("§2 stale 拒绝回传的锚点可以直接拿来重发", () => {
+  const original = ["const keep = 1;", "const change = 2;", "const tail = 3;"].join("\n");
+  const changed = original.replace("const change = 2;", "const change = 999;");
+  const servedBefore = servedAll(original);
+
+  const stale = resolveAnchorEdits(changed, servedBefore, [
+    {
+      removeFrom: anchorAt(original, 2),
+      removeTo: anchorAt(original, 2),
+      replacementText: "const change = 2;",
+    },
+  ]);
+  assert.equal(stale.status, "failed");
+  if (stale.status !== "failed") return;
+
+  const failure = createAnchorFailureMessage({ content: changed, failure: stale, total: 1 });
+  // 拒绝路径必须把渲染过的行回报出来，否则这些锚点不算「看过」
+  assert.ok(failure.servedHashes.length > 0);
+
+  const offered = failure.text.match(/2:([0-9A-Z]{4})│/)?.[1];
+  assert.ok(offered, "错误信息里应当带上第 2 行的当前锚点");
+
+  const servedAfter = withServed(servedBefore, failure.servedHashes);
+  const retry = resolveAnchorEdits(changed, servedAfter, [
+    { removeFrom: `2:${offered}`, removeTo: `2:${offered}`, replacementText: "const change = 2;" },
+  ]);
+  assert.equal(retry.status, "resolved");
+  if (retry.status === "resolved") {
+    assert.equal(applyAnchorEdits(changed, retry.edits).content, original);
+  }
+});
+
+test("§2 ambiguous 拒绝回传的锚点也可以直接重发", () => {
+  const content = ["  return 1;", "  return 1;", "  return 1;"].join("\n");
+  const served = servedAll(content);
+  const hash = hashLineContent("  return 1;");
+
+  const ambiguous = resolveAnchorEdits(content, served, [
+    { removeFrom: `99:${hash}`, removeTo: `99:${hash}`, replacementText: "  return 2;" },
+  ]);
+  assert.equal(ambiguous.status, "failed");
+  if (ambiguous.status !== "failed") return;
+
+  const failure = createAnchorFailureMessage({ content, failure: ambiguous, total: 1 });
+  const servedAfter = withServed(served, failure.servedHashes);
+
+  // 从回传里挑第 3 行，按新锚点重发
+  const offered = failure.text.match(/3:([0-9A-Z]{4})│/)?.[1];
+  assert.ok(offered);
+  const retry = resolveAnchorEdits(content, servedAfter, [
+    { removeFrom: `3:${offered}`, removeTo: `3:${offered}`, replacementText: "  return 3;" },
+  ]);
+  assert.equal(retry.status, "resolved");
+});
+
+// ============================================================
+// 回传锚点的区间正确性
+// ============================================================
+
+test("§3a 多行替换时回传区域覆盖全部新插入的行", () => {
+  const content = ["L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8"].join("\n");
+  const result = editOnce(content, servedAll(content), [
+    {
+      removeFrom: anchorAt(content, 1),
+      removeTo: anchorAt(content, 3),
+      replacementText: ["L1a", "L1b", "L1c", "L1d", "L1e"].join("\n"),
+    },
+  ]);
+
+  assert.deepEqual(result.changedRanges, [{ start: 0, end: 4 }]);
+  for (const inserted of ["L1a", "L1b", "L1c", "L1d", "L1e"]) {
+    assert.match(result.updatedText, new RegExp(inserted), `回传应包含 ${inserted}`);
+  }
+});
+
+test("§3b 靠前的编辑改变行数后，后面编辑的落点仍按新内容报告", () => {
+  const content = ["L1", "L2", "L3", "L4", "L5", "L6", "L7"].join("\n");
+  const result = editOnce(content, servedAll(content), [
+    // 第一条：1 行换 3 行，净 +2
+    { removeFrom: anchorAt(content, 1), removeTo: anchorAt(content, 1), replacementText: "L1a\nL1b\nL1c" },
+    // 第二条：原第 7 行，新内容里落在第 9 行
+    { removeFrom: anchorAt(content, 7), removeTo: anchorAt(content, 7), replacementText: "L7x" },
+  ]);
+
+  const newLines = splitLines(result.content);
+  assert.equal(newLines.indexOf("L7x"), 8, "L7x 应落在新内容的第 9 行");
+  assert.deepEqual(result.changedRanges[1], { start: 8, end: 8 });
+
+  // 用原始索引 6 会指到 L5 —— 回传里必须出现的是 L7x
+  assert.match(result.updatedText, /9:[0-9A-Z]{4}│L7x/);
+});
+
+test("§3c 两个编辑的上下文窗口重叠时，两个区块都要回传", () => {
+  const content = ["const a = 1;", "const b = 2;", "const c = 3;", "const d = 4;", "const e = 5;"].join("\n");
+  const result = editOnce(content, servedAll(content), [
+    {
+      removeFrom: anchorAt(content, 1),
+      removeTo: anchorAt(content, 1),
+      replacementText: "const a = 1;\nconst a2 = 2;\nconst a3 = 3;",
+    },
+    { removeFrom: anchorAt(content, 5), removeTo: anchorAt(content, 5), replacementText: "const e = 500;" },
+  ]);
+
+  // 文件里两条都生效了
+  assert.match(result.content, /const e = 500;/);
+  // 回传里必须也能看到第二条的新锚点
+  assert.match(result.updatedText, /const e = 500;/);
+});
+
+test("§3c 相隔很远的两个编辑仍然分成两个区块", () => {
+  const lines = Array.from({ length: 40 }, (_, index) => `const row${index + 1} = ${index + 1};`);
+  const content = lines.join("\n");
+  const result = editOnce(content, servedAll(content), [
+    { removeFrom: anchorAt(content, 2), removeTo: anchorAt(content, 2), replacementText: "const row2 = 20;" },
+    { removeFrom: anchorAt(content, 30), removeTo: anchorAt(content, 30), replacementText: "const row30 = 300;" },
+  ]);
+
+  assert.match(result.updatedText, /\n\.\.\.\n/);
+  assert.match(result.updatedText, /const row2 = 20;/);
+  assert.match(result.updatedText, /const row30 = 300;/);
+});
+
+test("回传的 servedHashes 恰好等于渲染出来的那些行", () => {
+  const content = ["const a = 1;", "const b = 2;", "const c = 3;"].join("\n");
+  const rendered = buildUpdatedAnchors(content, [{ start: 1, end: 1 }]);
+  const renderedLines = rendered.text.split("\n").map((line) => line.slice(line.indexOf("│") + 1));
+
+  assert.deepEqual(
+    rendered.servedHashes,
+    renderedLines.map((line) => hashLineContent(line)),
+  );
+});
+
+test("formatAnchorRegion 渲染带锚点的区域并回报哈希", () => {
   const region = formatAnchorRegion(CONTENT, 2, 1);
-  assert.match(region, /Current anchors \(lines 1-3\)/);
-  assert.match(region, /2:[0-9A-Z]{4}│  const msg = "hi " \+ name;/);
+  assert.match(region.text, /Current anchors \(lines 1-3\)/);
+  assert.match(region.text, /2:[0-9A-Z]{4}│  const msg = "hi " \+ name;/);
+  assert.deepEqual(
+    region.servedHashes,
+    splitLines(CONTENT)
+      .slice(0, 3)
+      .map((line) => hashLineContent(line)),
+  );
+});
+
+test("空文件上渲染区域不报错", () => {
+  // 空文件在 splitLines 下是「一行空内容」，锚点照常渲染，不应抛错。
+  const region = formatAnchorRegion("", 1);
+  assert.match(region.text, /Current anchors \(lines 1-1\)/);
+  assert.deepEqual(region.servedHashes, [hashLineContent("")]);
+  assert.equal(buildUpdatedAnchors("", [{ start: 0, end: 0 }]).servedHashes.length, 1);
 });

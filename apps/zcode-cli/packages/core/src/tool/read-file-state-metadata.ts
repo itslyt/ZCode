@@ -3,7 +3,7 @@ import { createReadFileStateKey } from "./read-file-state.js";
 import type { ReadFileStateEntry, ReadFileStateMap } from "./types.js";
 
 export const READ_FILE_STATE_METADATA_SCHEMA_VERSION = 1;
-export type PersistedReadFileStateTool = "Read" | "Write" | "Edit";
+export type PersistedReadFileStateTool = "Read" | "Write" | "Edit" | "EditAnchored";
 
 export interface PersistedReadFileStateMetadata {
   schemaVersion: typeof READ_FILE_STATE_METADATA_SCHEMA_VERSION;
@@ -130,7 +130,9 @@ export function parseReadFileStateMetadata(
 }
 
 function isPersistedReadFileStateTool(value: unknown): value is PersistedReadFileStateTool {
-  return value === "Read" || value === "Write" || value === "Edit";
+  return (
+    value === "Read" || value === "Write" || value === "Edit" || value === "EditAnchored"
+  );
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

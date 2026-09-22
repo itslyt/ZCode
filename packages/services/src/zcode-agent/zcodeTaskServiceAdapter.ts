@@ -4460,6 +4460,11 @@ function inferStreamingToolInputToolName(input: unknown): string | undefined {
   if (!filePath) {
     return undefined;
   }
+  // 锚点编辑的输入只有 file_path + edits，没有 old_string/content，
+  // 不单独认一下的话流式阶段拿不到工具名，工具卡在生成过程中只能显示原始 JSON。
+  if (isStreamingAnchorEditsInput(record)) {
+    return "EditAnchored";
+  }
   if (
     readStreamingToolInputStringField(record, ["old_string", "oldString", "old_text", "oldText"])
   ) {
@@ -4477,6 +4482,18 @@ function inferStreamingToolInputToolName(input: unknown): string | undefined {
     return "Write";
   }
   return undefined;
+}
+
+/**
+ * 流式阶段判断一个 file 类输入是不是锚点编辑：
+ * `edits[].remove_from` 是锚点编辑独有的字段，`Edit` 的批量条目用的是 `old_string`。
+ */
+function isStreamingAnchorEditsInput(record: Record<string, unknown>): boolean {
+  const edits = record.edits;
+  if (!Array.isArray(edits)) return false;
+  return edits.some(
+    (entry) => asRecord(entry) !== undefined && "remove_from" in (entry as Record<string, unknown>),
+  );
 }
 
 function readStreamingToolInputStringField(

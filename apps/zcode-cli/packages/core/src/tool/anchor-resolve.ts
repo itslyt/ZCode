@@ -216,125 +216,204 @@ export function findOverlappingAnchorEdits(
 }
 
 /** 按起始行倒序应用，避免前面的编辑移动后面区间的行号。 */
+export interface AppliedAnchorEdits {
+  content: string;
+  /** 每条编辑在**新内容**里实际落地的行区间（0 起始闭区间），顺序与传入的 edits 一致。 */
+  changedRanges: { start: number; end: number }[];
+}
+
+/**
+ * 按起始行倒序应用，避免前面的编辑移动后面区间的行号。
+ *
+ * 同时回报每条编辑在新内容里的落点：`ResolvedAnchorEdit.start/end` 是原始内容的索引，
+ * 直接拿去渲染回传锚点会在靠前的编辑改变行数后指向别的行。
+ */
 export function applyAnchorEdits(
   content: string,
   edits: readonly ResolvedAnchorEdit[],
-): string {
+): AppliedAnchorEdits {
   const lines = splitLines(content);
-  const ordered = [...edits].sort((left, right) => right.start - left.start);
+  const ordered = edits
+    .map((edit, index) => ({ edit, index }))
+    .sort((left, right) => right.edit.start - left.edit.start);
 
-  for (const edit of ordered) {
+  const changedRanges: { start: number; end: number }[] = new Array(edits.length);
+
+  for (const { edit, index } of ordered) {
     const replacementLines =
       edit.replacementText === "" ? [] : splitLines(edit.replacementText);
-    lines.splice(edit.start, edit.end - edit.start + 1, ...replacementLines);
+    const removedCount = edit.end - edit.start + 1;
+    lines.splice(edit.start, removedCount, ...replacementLines);
+
+    // splice 之后 replacement 落在 [edit.start, edit.start + 长度 - 1]；
+    // 纯删除没有 replacement，落点是删除位置上的那一行。
+    const start = Math.min(edit.start, Math.max(lines.length - 1, 0));
+    changedRanges[index] = { start, end: start + Math.max(replacementLines.length, 1) - 1 };
+
+    // 倒序处理，所以已经记录过的落点都在这次 splice 位置之后；
+    // 本次行数变化了多少，它们就要整体平移多少，否则会指向错行。
+    const delta = replacementLines.length - removedCount;
+    if (delta !== 0) {
+      for (let done = 0; done < changedRanges.length; done += 1) {
+        if (done === index) continue;
+        const range = changedRanges[done];
+        if (!range || range.start < edit.start) continue;
+        range.start += delta;
+        range.end += delta;
+      }
+    }
   }
 
-  return lines.join("\n");
+  return { content: lines.join("\n"), changedRanges };
 }
 
 const REGION_CONTEXT_LINES = 3;
 
+/** 渲染结果：文本 + 这次实际展示给模型的行哈希。只有后者算「模型看过了」。 */
+export interface RenderedAnchors {
+  text: string;
+  servedHashes: string[];
+}
+
 /**
  * 渲染一段带锚点的区域，供拒绝信息与编辑结果使用。
  * 这是 reject-and-serve：模型拿到它就能继续，不必重新读整个文件。
+ *
+ * 返回的 `servedHashes` 必须被调用方并进 served 集合——否则模型照抄这里给出的锚点
+ * 会被判 unserved，reject-and-serve 就成了死循环。
  */
 export function formatAnchorRegion(
   content: string,
   centerLine: number,
   contextLines = REGION_CONTEXT_LINES,
-): string {
+): RenderedAnchors {
   const lines = splitLines(content);
-  if (lines.length === 0) return "(file is empty)";
+  if (lines.length === 0) return { text: "(file is empty)", servedHashes: [] };
 
   const from = Math.max(1, centerLine - contextLines);
   const to = Math.min(lines.length, centerLine + contextLines);
+  const rendered = renderAnchorLines(lines, from, to);
 
-  const body = lines
+  return {
+    text: `Current anchors (lines ${from}-${to}):\n${rendered.text}`,
+    servedHashes: rendered.servedHashes,
+  };
+}
+
+function renderAnchorLines(lines: readonly string[], from: number, to: number): RenderedAnchors {
+  const servedHashes: string[] = [];
+  const text = lines
     .slice(from - 1, to)
     .map((line, offset) => {
       const lineNumber = from + offset;
-      return `${formatAnchorPrefix(lineNumber, hashLineContent(line))}${line}`;
+      const hash = hashLineContent(line);
+      servedHashes.push(hash);
+      return `${formatAnchorPrefix(lineNumber, hash)}${line}`;
     })
     .join("\n");
 
-  return `Current anchors (lines ${from}-${to}):\n${body}`;
+  return { text, servedHashes };
 }
 
-/** 编辑成功后回传受影响区域的新锚点，省掉一次重新读取。 */
+/**
+ * 编辑成功后回传受影响区域的新锚点，省掉一次重新读取。
+ *
+ * `changedRanges` 必须是**新内容**里的行区间（见 `applyAnchorEdits` 的返回值）。
+ * 传原始内容的索引会在靠前的编辑改变行数后指向别处。
+ */
 export function buildUpdatedAnchors(
   content: string,
   changedRanges: readonly { start: number; end: number }[],
   contextLines = REGION_CONTEXT_LINES,
-): string {
+): RenderedAnchors {
   const lines = splitLines(content);
-  if (lines.length === 0) return "";
+  if (lines.length === 0) return { text: "", servedHashes: [] };
 
-  const blocks: string[] = [];
-  const covered = new Set<number>();
+  const windows = changedRanges
+    .map((range) => ({
+      from: Math.max(1, range.start + 1 - contextLines),
+      to: Math.min(lines.length, range.end + 1 + contextLines),
+    }))
+    .sort((left, right) => left.from - right.from);
 
-  for (const range of changedRanges) {
-    const from = Math.max(1, range.start + 1 - contextLines);
-    const to = Math.min(lines.length, range.end + 1 + contextLines);
-    if (covered.has(from)) continue;
-    for (let line = from; line <= to; line += 1) covered.add(line);
-
-    blocks.push(
-      lines
-        .slice(from - 1, to)
-        .map((line, offset) => {
-          const lineNumber = from + offset;
-          return `${formatAnchorPrefix(lineNumber, hashLineContent(line))}${line}`;
-        })
-        .join("\n"),
-    );
+  // 合并重叠或相接的窗口。只判断「起点是否被覆盖」会把后一个区块整个 continue 掉：
+  // 它的起点落在前一个窗口内、尾部却超出前一个窗口，于是它要服务的行从未回传。
+  const merged: { from: number; to: number }[] = [];
+  for (const window of windows) {
+    const last = merged[merged.length - 1];
+    if (last && window.from <= last.to + 1) {
+      last.to = Math.max(last.to, window.to);
+      continue;
+    }
+    merged.push({ ...window });
   }
 
-  return blocks.join("\n...\n");
+  const blocks = merged.map((window) => renderAnchorLines(lines, window.from, window.to));
+  return {
+    text: blocks.map((block) => block.text).join("\n...\n"),
+    servedHashes: blocks.flatMap((block) => block.servedHashes),
+  };
 }
 
 export function createAnchorFailureMessage(input: {
   content: string;
   failure: AnchorResolveFailure;
   total: number;
-}): string {
+}): RenderedAnchors {
   const { failure, total, content } = input;
   const position = `Edit ${failure.editIndex + 1} of ${total}`;
   const hintLine = Math.min(Math.max(failure.hintLine, 1), splitLines(content).length || 1);
 
   switch (failure.reason) {
     case "malformed_anchor":
-      return [
+      return plain([
         `${position} has a malformed anchor: ${JSON.stringify(failure.anchor)}.`,
         "Anchors look like `22:AB3F` (line number, colon, 4-character hash). Copy them verbatim from a Read result.",
         "No edits were applied.",
-      ].join("\n");
+      ]);
 
     case "unserved":
-      return [
+      return plain([
         `${position} references anchor ${failure.anchor}, which was never shown to you for this file.`,
         "Read the region first, then copy the anchor from that Read result.",
         "No edits were applied.",
-      ].join("\n");
+      ]);
 
-    case "ambiguous":
-      return [
-        `${position} anchor ${failure.anchor} matches ${failure.matchCount} lines in the current file,`,
-        "so it cannot be resolved to one place. Read the region again and copy fresh anchors.",
-        "No edits were applied.",
-      ].join("\n");
+    case "ambiguous": {
+      // 同样要 serve：只叫模型“再读一次”等于把 reject-and-serve 省下的往返又还回去。
+      const region = formatAnchorRegion(content, hintLine);
+      return {
+        text: [
+          `${position} anchor ${failure.anchor} matches ${failure.matchCount} lines in the current file,`,
+          "so it cannot be resolved to one place. Pick the line you meant from the anchors below and resend.",
+          "No edits were applied.",
+          region.text,
+        ].join("\n"),
+        servedHashes: region.servedHashes,
+      };
+    }
 
     case "reversed_range":
-      return [
+      return plain([
         `${position} has remove_from after remove_to.`,
         "remove_from must be the anchor of the first line and remove_to the anchor of the last line.",
         "No edits were applied.",
-      ].join("\n");
+      ]);
 
-    case "stale":
-      return [
-        `${position} anchor ${failure.anchor} no longer exists in the file — the content it pointed at changed.`,
-        "No edits were applied.",
-        formatAnchorRegion(content, hintLine),
-      ].join("\n");
+    case "stale": {
+      const region = formatAnchorRegion(content, hintLine);
+      return {
+        text: [
+          `${position} anchor ${failure.anchor} no longer exists in the file — the content it pointed at changed.`,
+          "No edits were applied. Resend with one of the current anchors below.",
+          region.text,
+        ].join("\n"),
+        servedHashes: region.servedHashes,
+      };
+    }
   }
+}
+
+function plain(lines: readonly string[]): RenderedAnchors {
+  return { text: lines.join("\n"), servedHashes: [] };
 }

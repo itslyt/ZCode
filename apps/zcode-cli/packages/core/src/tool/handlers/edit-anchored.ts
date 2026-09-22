@@ -26,7 +26,6 @@ import {
   type FileSystemReadTextResult,
   type TraceContext,
 } from "@zcode/contracts";
-import { computeLineHashes } from "../anchor-hash.js";
 import {
   applyAnchorEdits,
   buildUpdatedAnchors,
@@ -42,7 +41,6 @@ import { createReadFileStateKey, normalizeReadFileStateMtimeMs } from "../read-f
 import { createReadFileStateMetadataFromEntry } from "../read-file-state-metadata.js";
 import type {
   ReadFileStateEntry,
-  ReadFileStateMap,
   ToolEntry,
   ToolExecutionContext,
   ToolHandler,
@@ -134,9 +132,27 @@ const editAnchoredHandler: ToolHandler = async (input, context) => {
   const servedHashes = collectServedAnchors(context.readFileState, filePath);
   const resolved = resolveAnchorEdits(content, servedHashes, requests);
   if (resolved.status === "failed") {
-    return editAnchoredFailure(
-      createAnchorFailureMessage({ content, failure: resolved, total: requests.length }),
-    );
+    const failure = createAnchorFailureMessage({
+      content,
+      failure: resolved,
+      total: requests.length,
+    });
+    // 拒绝路径同样要落 served：错误信息里刚把该区域的新锚点展示给模型了，
+    // 不并进去的话，模型照抄这些锚点重发会被判 unserved——reject-and-serve 变死循环。
+    //
+    // 只在确实渲染了区域时才写（stale / ambiguous）。unserved / malformed / reversed
+    // 不渲染任何内容，不能顺手把读状态刷成「整文件已读」——那会白白绕过
+    // Write/Edit 的「先读后写」前置条件。
+    if (failure.servedHashes.length > 0) {
+      writeAnchoredReadState({
+        context,
+        filePath,
+        content,
+        revision: read.revision,
+        servedHashes: failure.servedHashes,
+      });
+    }
+    return editAnchoredFailure(failure.text);
   }
 
   const overlap = findOverlappingAnchorEdits(resolved.edits);
@@ -149,7 +165,8 @@ const editAnchoredHandler: ToolHandler = async (input, context) => {
     );
   }
 
-  const newContent = applyAnchorEdits(content, resolved.edits);
+  const applied = applyAnchorEdits(content, resolved.edits);
+  const newContent = applied.content;
 
   const writeResult = await fileSystemPort.writeTextFile(
     {
@@ -164,19 +181,17 @@ const editAnchoredHandler: ToolHandler = async (input, context) => {
     { signal: context.abortSignal },
   );
 
-  const updatedAnchors = buildUpdatedAnchors(
-    newContent,
-    resolved.edits.map((edit) => ({ start: edit.start, end: edit.start })),
-  );
+  const updatedAnchors = buildUpdatedAnchors(newContent, applied.changedRanges);
 
-  const entry = updateReadFileStateAfterAnchoredEdit({
-    readFileState: context.readFileState,
+  // 只并「回传里实际渲染给模型的行」。把整个文件的哈希都灌进 served 会让
+  // “只允许改看过的行”这条硬约束在首次编辑之后彻底失效。
+  writeAnchoredReadState({
+    context,
     filePath,
     content: newContent,
     revision: writeResult.revision,
-    servedAnchors: computeLineHashes(newContent.split("\n")),
+    servedHashes: updatedAnchors.servedHashes,
   });
-  recordReadFileStateMetadata(context, entry);
 
   return {
     filePath: file_path,
@@ -188,7 +203,7 @@ const editAnchoredHandler: ToolHandler = async (input, context) => {
       newContent,
     }),
     userModified: false,
-    updatedAnchors,
+    updatedAnchors: updatedAnchors.text,
   } satisfies EditAnchoredOutput;
 };
 
@@ -204,17 +219,25 @@ function editAnchoredFailure(message: string): ToolHandlerFailure {
 // Read state
 // -----------------------------------------------
 
-function updateReadFileStateAfterAnchoredEdit(input: {
-  readFileState: ReadFileStateMap | undefined;
+/**
+ * 把这次实际展示给模型的行哈希并进 served，并刷新读状态。
+ *
+ * 成功与拒绝两条路径走**同一个**写入逻辑：差别只在 servedHashes 来自哪个渲染结果，
+ * 而不是「拒绝路径不写」——早先拒绝路径直接 return，导致错误信息里刚给出的锚点不算
+ * 看过，模型照抄必然二次失败。
+ */
+function writeAnchoredReadState(input: {
+  context: ToolExecutionContext;
   filePath: string;
   content: string;
   revision: FileSystemReadTextResult["revision"] | undefined;
-  servedAnchors: string[];
-}): ReadFileStateEntry | undefined {
-  if (!input.readFileState) return undefined;
+  servedHashes: readonly string[];
+}): void {
+  const readFileState = input.context.readFileState;
+  if (!readFileState) return;
 
   const key = createReadFileStateKey(input.filePath, 1, undefined);
-  const previous = input.readFileState.get(key);
+  const previous = readFileState.get(key);
 
   const entry: ReadFileStateEntry = {
     path: input.filePath,
@@ -223,17 +246,17 @@ function updateReadFileStateAfterAnchoredEdit(input: {
     limit: undefined,
     isPartialView: false,
     readAt: new Date(),
-    sourceTool: "Edit",
+    sourceTool: TOOL_NAME,
     revisionId: input.revision?.id,
     mtimeMs: normalizeReadFileStateMtimeMs(input.revision?.mtimeMs),
     sizeBytes: input.revision?.sizeBytes ?? Buffer.byteLength(input.content, "utf8"),
-    // 编辑结果里回传了新锚点，模型看过了，所以并进 served；同时保留旧哈希，
-    // 否则模型手里那些「行号位移但内容没变」的锚点会被误判为没看过。
-    servedAnchors: mergeServedAnchors(previous?.servedAnchors, input.servedAnchors),
+    // 只并这次渲染给模型的行；旧哈希保留，否则模型手里那些「行号位移但内容没变」
+    // 的锚点会被误判为没看过。
+    servedAnchors: mergeServedAnchors(previous?.servedAnchors, input.servedHashes),
   };
 
-  input.readFileState.set(key, entry);
-  return entry;
+  readFileState.set(key, entry);
+  recordReadFileStateMetadata(input.context, entry);
 }
 
 function recordReadFileStateMetadata(
@@ -244,7 +267,7 @@ function recordReadFileStateMetadata(
   const metadata = createReadFileStateMetadataFromEntry({
     completedAt: entry?.readAt ?? new Date(),
     entry,
-    toolName: "Edit",
+    toolName: TOOL_NAME,
   });
   if (metadata) context.recordReadFileStateMetadata(metadata);
 }

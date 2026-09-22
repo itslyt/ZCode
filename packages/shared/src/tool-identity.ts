@@ -2,6 +2,9 @@ export const ZCODE_KNOWN_TOOL_NAMES = [
   "Read",
   "Write",
   "Edit",
+  // 锚点编辑工具。不登记的话 UI identity 落到 unknown，工具卡退化成原始 JSON，
+  // 拿不到 diff 预览，文件摘要与 treemap 统计也会漏计。
+  "EditAnchored",
   "ApplyPatch",
   "Bash",
   "Glob",
@@ -58,6 +61,7 @@ const TOOL_FAMILY_BY_NAME: Record<ZCodeKnownToolName, ZCodeToolFamily> = {
   Read: "file-read",
   Write: "file-write",
   Edit: "file-write",
+  EditAnchored: "file-write",
   ApplyPatch: "file-write",
   Bash: "shell",
   Glob: "search",

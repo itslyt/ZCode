@@ -68,8 +68,12 @@ export async function hydrateReadFileStateFromSession(input: {
         continue;
       }
 
-      if (part.tool === "Edit") {
-        const restored = restoreMetadataToolState(input.readFileState, part, "Edit");
+      // EditAnchored 也写读状态（含 served 集合），resume 时必须一并恢复：它的部件名是
+      // `EditAnchored`，只匹配 `Edit` 会让锚点编辑过的文件在 resume 后丢掉「已读」状态，
+      // 之前建立的 served 集合归零，之后第一次锚点编辑大概率撞 unserved。
+      const metadataTool = part.tool === "Edit" || part.tool === "EditAnchored" ? part.tool : null;
+      if (metadataTool) {
+        const restored = restoreMetadataToolState(input.readFileState, part, metadataTool);
         if (restored) result.restoredCount++;
       }
     }
