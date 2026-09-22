@@ -292,7 +292,9 @@ export const DefaultRuntimeConfig: RuntimeConfig = {
     idleTimeoutMs: DEFAULT_MODEL_STREAM_IDLE_TIMEOUT_MS,
   },
   permission: {
-    mode: "build",
+    // 自用 fork：默认权限从 "build"（变更前确认）改为 "yolo"（完全访问）。
+    // 项目级“上次选择”（local_setting）仍然优先于这个默认值。
+    mode: "yolo",
     allowedTools: [],
     disallowedTools: [],
     autoApproveHighRisk: false,
