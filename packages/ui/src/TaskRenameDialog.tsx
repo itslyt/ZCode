@@ -21,6 +21,8 @@ export function TaskRenameDialog({
   onChange,
   onCancel,
   onConfirm,
+  titleId = "taskList.rename",
+  placeholderId = "taskList.renamePlaceholder",
 }: {
   open: boolean;
   value: string;
@@ -32,6 +34,9 @@ export function TaskRenameDialog({
   onChange: (value: string) => void;
   onCancel: () => void;
   onConfirm: () => void;
+  /** 复用同一对话框的入口可覆盖标题/占位文案（默认任务重命名）。 */
+  titleId?: string;
+  placeholderId?: string;
 }) {
   const compositionActiveRef = useRef(false);
 
@@ -40,14 +45,14 @@ export function TaskRenameDialog({
       <DialogContent className="max-w-xl overflow-hidden rounded-2xl p-0">
         <div className="flex min-w-0 flex-col gap-6 p-6">
           <DialogHeader className="space-y-2">
-            <DialogTitle>{intl.formatMessage({ id: "taskList.rename" })}</DialogTitle>
+            <DialogTitle>{intl.formatMessage({ id: titleId })}</DialogTitle>
           </DialogHeader>
           <div className="flex min-w-0 flex-col space-y-4">
             <Input
               ref={inputRef}
               value={value}
               size="lg"
-              placeholder={intl.formatMessage({ id: "taskList.renamePlaceholder" })}
+              placeholder={intl.formatMessage({ id: placeholderId })}
               onChange={(event) => {
                 onChange(event.target.value);
               }}
