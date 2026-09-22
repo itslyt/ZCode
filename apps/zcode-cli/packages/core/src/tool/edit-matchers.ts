@@ -1,4 +1,4 @@
-type EditMatchStrategy =
+export type EditMatchStrategy =
   | "exact"
   | "quote_normalized"
   | "line_number_prefix_stripped"
@@ -14,6 +14,8 @@ type EditMatchResult =
       actualString: string;
       strategy: EditMatchStrategy;
       candidateCount: number;
+      /** 命中区域在原文中的起始偏移。批量编辑据此在原内容上定位，避免批内互相位移。 */
+      index: number;
     }
   | {
       status: "ambiguous";
@@ -140,6 +142,7 @@ function toMatchResult(strategy: EditMatchStrategy, candidates: Candidate[]): Ed
     actualString: uniqueValues[0] ?? "",
     strategy,
     candidateCount: candidates.length,
+    index: candidates[0]?.index ?? 0,
   };
 }
 
@@ -404,6 +407,72 @@ function isOpeningQuoteContext(chars: string[], index: number): boolean {
     previous === "—" ||
     previous === "–"
   );
+}
+
+/**
+ * 列出 `needle` 在 `content` 中的所有起始偏移。
+ *
+ * 批量编辑需要把每条编辑钉在**原内容**的绝对偏移上：如果按顺序把上一条的结果写回
+ * 工作副本，下一条的匹配位置就会被上一条的增删行挤走（dsh-better-edit 的
+ * `E_BATCH_DISPLACED` 就是这类失败）。先全部定位、再按偏移倒序应用，批内就没有顺序耦合。
+ */
+export function collectOccurrenceOffsets(content: string, needle: string): number[] {
+  if (needle.length === 0) return [];
+  const offsets: number[] = [];
+  let position = 0;
+  while (position <= content.length) {
+    const index = content.indexOf(needle, position);
+    if (index === -1) break;
+    offsets.push(index);
+    position = index + needle.length;
+  }
+  return offsets;
+}
+
+/**
+ * 匹配失败时给出「最接近的区域」，让模型不必重读就能修正参数。
+ *
+ * 失败只回一句 not found，模型只能重读整个文件再重新构造；带回带行号的就近片段，
+ * 它可以直接改 `old_string` 重发（oh-my-pi 的 copy-ready correction 思路）。
+ */
+export interface ClosestEditRegion {
+  /** 1 起始的起始行 */
+  startLine: number;
+  /** 1 起始的结束行 */
+  endLine: number;
+  /** 平均行相似度 0..1 */
+  similarity: number;
+}
+
+const CLOSEST_REGION_MIN_SIMILARITY = 0.3;
+
+export function findClosestEditRegion(
+  content: string,
+  search: string,
+): ClosestEditRegion | null {
+  const contentLines = content.split("\n");
+  const searchLines = trimTrailingEmptyLine(search.split("\n"));
+  if (searchLines.length === 0 || searchLines.length > contentLines.length) return null;
+
+  const expected = searchLines.map((line) => line.trim());
+  let best: ClosestEditRegion | null = null;
+
+  for (let index = 0; index <= contentLines.length - searchLines.length; index += 1) {
+    let total = 0;
+    for (let offset = 0; offset < expected.length; offset += 1) {
+      total += lineSimilarity(contentLines[index + offset]!.trim(), expected[offset]!);
+    }
+    const similarity = total / expected.length;
+    if (best === null || similarity > best.similarity) {
+      best = {
+        startLine: index + 1,
+        endLine: index + searchLines.length,
+        similarity,
+      };
+    }
+  }
+
+  return best !== null && best.similarity >= CLOSEST_REGION_MIN_SIMILARITY ? best : null;
 }
 
 function isLetter(value: string | undefined): boolean {

@@ -25,12 +25,13 @@ export const EditInputSchema = z.object({
   /**
    * The text to replace
    */
-  old_string: z.string().describe("The text to replace"),
+  old_string: z.string().optional().describe("The text to replace"),
   /**
    * The text to replace it with (must be different from old_string)
    */
   new_string: z
     .string()
+    .optional()
     .describe("The text to replace it with (must be different from old_string)"),
   /**
    * Replace all occurrences of old_string (default false)
@@ -39,6 +40,27 @@ export const EditInputSchema = z.object({
     .optional()
     .default(false)
     .describe("Replace all occurrences of old_string (default false)"),
+  /**
+   * Atomic batch edits. Every entry is located against the file's ORIGINAL content,
+   * so entries never displace each other; if any entry fails, nothing is written.
+   * Use this instead of old_string/new_string when a single change touches several
+   * places in one file.
+   */
+  edits: z
+    .array(
+      z.object({
+        old_string: z.string().describe("The text to replace"),
+        new_string: z.string().describe("The text to replace it with"),
+        replace_all: semanticBoolean()
+          .optional()
+          .default(false)
+          .describe("Replace all occurrences of this entry's old_string (default false)"),
+      }),
+    )
+    .optional()
+    .describe(
+      "Atomic batch of edits applied to one file. Located against the original content; all-or-nothing.",
+    ),
 });
 
 export type EditInput = z.infer<typeof EditInputSchema>;
@@ -86,6 +108,10 @@ export interface EditOutput {
    * Number of candidate positions observed by the selected match strategy.
    */
   matchCandidateCount?: number;
+  /** `edits` 批量路径下实际应用的编辑条数；单条路径不出现 */
+  batchEditCount?: number;
+  /** 批量路径下同时给出了 old_string/new_string，这两个参数被忽略（结果里会明说） */
+  ignoredSingleEditArguments?: boolean;
   /**
    * Git diff information (for remote scenarios)
    */
@@ -146,6 +172,9 @@ export const EditOutputSchema = z
     replaceAll: z.boolean(),
     matchStrategy: z.string().optional(),
     matchCandidateCount: z.number().int().nonnegative().optional(),
+    /** `edits` 批量路径下实际应用的编辑条数；单条路径不出现 */
+    batchEditCount: z.number().int().positive().optional(),
+    ignoredSingleEditArguments: z.boolean().optional(),
     gitDiff: EditGitDiffSchema.optional(),
     perf: ToolExecutionTelemetrySchema.optional(),
   })
@@ -187,6 +216,12 @@ export const EditErrorCode = {
   AMBIGUOUS_REPLACE: 9,
   FILE_TOO_LARGE: 10,
   INVALID_PATH: 13,
+  /** `edits` 与 `old_string`/`new_string` 同时给出，或 `edits` 为空 */
+  INVALID_EDIT_ARGUMENTS: 14,
+  /** 批量中某一条匹配失败/不唯一，整批未写入；消息里带失败下标与就近片段 */
+  BATCH_EDIT_FAILED: 15,
+  /** 批量中两条编辑的命中区间重叠，无法确定应用顺序 */
+  BATCH_EDIT_OVERLAP: 16,
 } as const;
 
 export type EditErrorCode = (typeof EditErrorCode)[keyof typeof EditErrorCode];

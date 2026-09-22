@@ -30,6 +30,13 @@ import {
 import { createStructuredPatch } from "../diff.js";
 import { stampMemoryOriginSessionId } from "../../memory/origin-session.js";
 import {
+  applyResolvedBatchEdits,
+  createBatchEditFailureMessage,
+  findOverlappingBatchEdits,
+  resolveBatchEdits,
+  type BatchEditRequest,
+} from "../edit-batch.js";
+import {
   findEditMatch,
   normalizeLineEndings,
   normalizeReplacementForMatch,
@@ -55,6 +62,7 @@ const EDIT_PROVIDER_DESCRIPTION = [
   "- You must Read the file in this conversation before editing, or the call will fail.",
   "- `old_string` must match the file exactly, including indentation, and be unique — the edit fails otherwise. Strip the Read line prefix (line number + tab) before matching.",
   "- `replace_all: true` replaces every occurrence instead.",
+  "- `edits: [{old_string, new_string}]` applies several edits to one file in a single atomic call. Every entry is located against the file's ORIGINAL content, so entries never displace each other; if any entry fails, nothing is written. Prefer it over repeated single-edit calls.",
 ].join("\n");
 const NON_UNIQUE_OLD_STRING_MESSAGE =
   "old_string is not unique in the file. Provide more surrounding context or set replace_all to true.";
@@ -69,10 +77,22 @@ function formatEditModelContent(output: unknown): string {
     isRecord(output) && typeof output.filePath === "string" ? output.filePath : "the file";
   const userModified = isRecord(output) && output.userModified === true;
   const replaceAll = isRecord(output) && output.replaceAll === true;
+  const batchEditCount =
+    isRecord(output) && typeof output.batchEditCount === "number" ? output.batchEditCount : 0;
   const modifiedNote = userModified
     ? ".  The user modified your proposed changes before accepting them. "
     : "";
   const freshnessSuffix = userModified ? "" : EDIT_FRESHNESS_SUFFIX;
+
+  if (batchEditCount > 0) {
+    // 同时给了 old_string/new_string 时它们是冗余的，这里必须明说被忽略了，
+    // 否则模型会以为自己另外那条单编辑也生效了。
+    const ignoredNote =
+      isRecord(output) && output.ignoredSingleEditArguments === true
+        ? " The old_string/new_string arguments were ignored because edits was provided."
+        : "";
+    return `The file ${filePath} has been updated successfully${modifiedNote}. ${batchEditCount} edits were applied atomically.${ignoredNote}${freshnessSuffix}`;
+  }
 
   if (replaceAll) {
     return `The file ${filePath} has been updated${modifiedNote}. All occurrences were successfully replaced.${freshnessSuffix}`;
@@ -82,7 +102,7 @@ function formatEditModelContent(output: unknown): string {
 }
 
 const editHandler: ToolHandler = async (input, context) => {
-  const { file_path, old_string, new_string, replace_all } = EditInputSchema.parse(
+  const { file_path, old_string, new_string, replace_all, edits } = EditInputSchema.parse(
     input,
   ) as EditInput;
   const fileSystemPort = context.fileSystemPort;
@@ -101,7 +121,36 @@ const editHandler: ToolHandler = async (input, context) => {
     );
   }
 
-  if (old_string === new_string) {
+  const batchEdits = edits ?? null;
+  const usesBatch = batchEdits !== null;
+
+  // `edits` 优先，同时给出的 old_string/new_string 被忽略——但结果里会明说，不静默。
+  //
+  // 这里最初做的是“两者同时给出就拒绝”的互斥校验。真机验证证明那是错的：模型会顺手把
+  // 可选字段也填上，实测四次尝试里有三次因此被拒（填过真实内容、"unused"、空串三种形态），
+  // 白耗三个往返。模型会填满可选字段是结构性行为，用校验去拦它属于“用提示词劝阻失败模式”；
+  // 正确做法是让 `edits` 直接赢，并把“忽略了哪几个参数”写进工具结果。
+  const ignoredSingleEditArguments = usesBatch && (old_string !== undefined || new_string !== undefined);
+
+  if (usesBatch && batchEdits.length === 0) {
+    return editFailure(
+      EditErrorCode.INVALID_EDIT_ARGUMENTS,
+      "`edits` must contain at least one entry. No edits were applied.",
+    );
+  }
+
+  if (!usesBatch && (old_string === undefined || new_string === undefined)) {
+    return editFailure(
+      EditErrorCode.INVALID_EDIT_ARGUMENTS,
+      "Provide both old_string and new_string, or use `edits` for a batch. No edits were applied.",
+    );
+  }
+
+  // 单条路径在下方分支使用；批量路径不读它们。
+  const singleOldString = old_string ?? "";
+  const singleNewString = new_string ?? "";
+
+  if (!usesBatch && singleOldString === singleNewString) {
     return editFailure(
       EditErrorCode.NO_CHANGE,
       "No changes to make: old_string and new_string are exactly the same.",
@@ -123,15 +172,15 @@ const editHandler: ToolHandler = async (input, context) => {
 
   const stat = await statEditableFile(filePath, context);
   if (!stat) {
-    if (old_string === "") {
+    if (!usesBatch && singleOldString === "") {
       return writeEditResult({
         context,
         filePath,
         inputFilePath: file_path,
         originalFile: "",
         actualOldString: "",
-        actualNewString: new_string,
-        newContent: new_string,
+        actualNewString: singleNewString,
+        newContent: singleNewString,
         replaceAll: replace_all,
         fsReadMs: 0,
         patchMatchMs: 0,
@@ -162,10 +211,12 @@ const editHandler: ToolHandler = async (input, context) => {
   );
   const fsReadMs = elapsedMsSince(readStartedAt);
   const content = normalizeLineEndings(read.content);
-  const oldString = normalizeLineEndings(old_string);
-  const requestedNewString = normalizeLineEndings(new_string);
+  const oldString = normalizeLineEndings(singleOldString);
+  const requestedNewString = normalizeLineEndings(singleNewString);
 
-  if (old_string === "") {
+  // 批量路径不读 singleOldString，这里必须门控：否则空串会被当成“新建文件”，
+  // 导致 edits 批量在已存在的文件上直接报 FILE_EXISTS_NO_OLD_STRING（真机验证踩到过）。
+  if (!usesBatch && singleOldString === "") {
     if (content.trim() !== "") {
       return editFailure(
         EditErrorCode.FILE_EXISTS_NO_OLD_STRING,
@@ -200,6 +251,19 @@ const editHandler: ToolHandler = async (input, context) => {
   const readStateFailure = getEditableReadStateFailure(filePath, read, context.readFileState);
   if (readStateFailure) return readStateFailure;
 
+  if (batchEdits) {
+    return applyBatchEdit({
+      context,
+      filePath,
+      inputFilePath: file_path,
+      content,
+      read,
+      edits: batchEdits,
+      fsReadMs,
+      ignoredSingleEditArguments,
+    });
+  }
+
   const patchMatchStartedAt = Date.now();
   const match = findEditMatch({
     content,
@@ -216,7 +280,7 @@ const editHandler: ToolHandler = async (input, context) => {
   if (match.status === "ambiguous") {
     return editFailure(
       EditErrorCode.AMBIGUOUS_REPLACE,
-      createAmbiguousEditMessage(match.candidateCount, old_string),
+      createAmbiguousEditMessage(match.candidateCount, singleOldString),
     );
   }
 
@@ -225,7 +289,7 @@ const editHandler: ToolHandler = async (input, context) => {
   if (!replace_all && matchCount > 1) {
     return editFailure(
       EditErrorCode.AMBIGUOUS_REPLACE,
-      createAmbiguousEditMessage(matchCount, old_string),
+      createAmbiguousEditMessage(matchCount, singleOldString),
     );
   }
 
@@ -467,6 +531,75 @@ function hasReadStateChanged(
   );
 }
 
+/**
+ * `edits` 批量路径：在原文上定位全部编辑 → 校验重叠 → 倒序写回 → 一次落盘。
+ *
+ * 任一条失败就整批拒绝，文件零改动；错误信息带失败下标与就近片段。
+ */
+async function applyBatchEdit(input: {
+  context: ToolExecutionContext;
+  filePath: string;
+  inputFilePath: string;
+  content: string;
+  read?: FileSystemReadTextResult;
+  edits: ReadonlyArray<{
+    old_string: string;
+    new_string: string;
+    replace_all?: boolean;
+  }>;
+  fsReadMs: number;
+  ignoredSingleEditArguments: boolean;
+}): Promise<EditOutput | ToolHandlerFailure> {
+  const requests: BatchEditRequest[] = input.edits.map((edit) => ({
+    oldString: normalizeLineEndings(edit.old_string),
+    newString: normalizeLineEndings(edit.new_string),
+    replaceAll: edit.replace_all ?? false,
+  }));
+
+  const matchStartedAt = Date.now();
+  const resolved = resolveBatchEdits(input.content, requests);
+  if (resolved.status === "failed") {
+    return editFailure(
+      resolved.reason === "no_change" ? EditErrorCode.NO_CHANGE : EditErrorCode.BATCH_EDIT_FAILED,
+      createBatchEditFailureMessage({
+        content: input.content,
+        failure: resolved,
+        total: requests.length,
+      }),
+    );
+  }
+
+  const overlap = findOverlappingBatchEdits(resolved.edits);
+  if (overlap) {
+    return editFailure(
+      EditErrorCode.BATCH_EDIT_OVERLAP,
+      [
+        `Edit ${overlap[0] + 1} and edit ${overlap[1] + 1} target overlapping regions of the file.`,
+        "Merge them into one entry, or make each old_string narrower. No edits were applied.",
+      ].join("\n"),
+    );
+  }
+
+  const patchMatchMs = elapsedMsSince(matchStartedAt);
+
+  return writeEditResult({
+    context: input.context,
+    filePath: input.filePath,
+    inputFilePath: input.inputFilePath,
+    originalFile: input.content,
+    actualOldString: requests.map((request) => request.oldString).join("\n"),
+    actualNewString: requests.map((request) => request.newString).join("\n"),
+    newContent: applyResolvedBatchEdits(input.content, resolved.edits),
+    read: input.read,
+    replaceAll: false,
+    fsReadMs: input.fsReadMs,
+    patchMatchMs,
+    matchAttempts: 1,
+    batchEditCount: resolved.edits.length,
+    ignoredSingleEditArguments: input.ignoredSingleEditArguments,
+  });
+}
+
 async function writeEditResult(input: {
   context: ToolExecutionContext;
   filePath: string;
@@ -482,6 +615,8 @@ async function writeEditResult(input: {
   matchAttempts: number;
   matchStrategy?: string;
   matchCandidateCount?: number;
+  batchEditCount?: number;
+  ignoredSingleEditArguments?: boolean;
 }): Promise<EditOutput> {
   const fileSystemPort = input.context.fileSystemPort;
   if (!fileSystemPort) {
@@ -547,6 +682,8 @@ async function writeEditResult(input: {
       replaceAll: input.replaceAll,
       matchStrategy: input.matchStrategy,
       matchCandidateCount: input.matchCandidateCount,
+      batchEditCount: input.batchEditCount,
+      ignoredSingleEditArguments: input.ignoredSingleEditArguments,
     } satisfies EditOutput,
     {
       detail: {
