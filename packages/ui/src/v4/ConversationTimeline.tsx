@@ -39,6 +39,8 @@ import { ConversationTurnNavigator } from "@/v4/ConversationTurnNavigator.js";
 import { syncConversationShareSelectionPanelLayout } from "@/v4/conversationShareSelectionPanelLayout.js";
 import type { ConversationRowRenderContext } from "@/v4/conversationRowContext.js";
 import { splitConversationTimelineLiveTail } from "@/v4/conversationTimelineLiveTail.js";
+import { ConversationRunningElapsed } from "@/v4/ConversationRunningElapsed.js";
+import { resolveRunningWorkElapsedMs } from "@/v4/conversationRunningElapsedModel.js";
 import {
   getConversationContentWidthClassName,
   getConversationStatusPanelOffsetClassName,
@@ -424,6 +426,11 @@ function ConversationTimelineImpl({
   const { virtualizedUnits, liveUnit, liveUnitIndex } = useMemo(
     () => splitConversationTimelineLiveTail(renderUnits),
     [renderUnits],
+  );
+  // liveUnit 只在最后一个 unit 仍在运行时在场，与轮顶「工作中 N 秒」同源同值。
+  const runningElapsedMs = useMemo(
+    () => (liveUnit ? resolveRunningWorkElapsedMs(liveUnit) : undefined),
+    [liveUnit],
   );
   const hasRunningUnit = useMemo(() => renderUnits.some((unit) => unit.isRunning), [renderUnits]);
   const turnNavigatorQueryRowIds = useMemo(
@@ -892,10 +899,12 @@ function ConversationTimelineImpl({
     }
 
     const viewportHeight = element.clientHeight;
-    const transparentStart = Math.max(
-      0,
-      viewportHeight - COMPOSER_MESSAGE_MASK_TRANSPARENT_HEIGHT_PX,
-    );
+    // 透明起点必须是 dock 的真实上沿，不能用固定值：dock 内容（时长条、队列面板、
+    // 横幅）会改变高度，固定值会在 dock 变高时把消息文字漏在时长条后面。
+    const dockHeight = composerDockRef.current?.getBoundingClientRect().height ?? 0;
+    const transparentHeight =
+      dockHeight > 0 ? dockHeight : COMPOSER_MESSAGE_MASK_TRANSPARENT_HEIGHT_PX;
+    const transparentStart = Math.max(0, viewportHeight - transparentHeight);
     const opaqueEnd = Math.max(0, transparentStart - COMPOSER_MESSAGE_MASK_FADE_PX);
     const viewportTopInLayer = Math.max(0, element.scrollTop - messageLayer.offsetTop);
     const maskImage = `linear-gradient(to bottom, black 0, black ${opaqueEnd}px, transparent ${transparentStart}px, transparent 100%)`;
@@ -957,6 +966,10 @@ function ConversationTimelineImpl({
       const observer = new ResizeObserver(sync);
       observer.observe(scrollElement);
       observer.observe(messageLayer);
+      // dock 高度决定 mask 透明起点（时长条、队列面板、横幅都会改变它）；
+      // 不观察 dock 就会在它变高时把消息文字漏在时长条后面。
+      const dock = composerDockRef.current;
+      if (dock) observer.observe(dock);
       return () => observer.disconnect();
     }
 
@@ -1936,6 +1949,11 @@ function ConversationTimelineImpl({
                   )}
                 >
                   <div data-v4-back-to-bottom-anchor="composer-dock" className="relative">
+                    {/* 长轮次会把轮顶「工作中 N 秒」滚出视口；这里在 dock 顶部复述同一读数。
+                        放在队列/横幅之前，与 DSH「时长在上、任务条在下」的顺序一致。 */}
+                    {runningElapsedMs === undefined ? null : (
+                      <ConversationRunningElapsed durationMs={runningElapsedMs} />
+                    )}
                     {backToBottomVisible ? (
                       <ConversationBackToBottomButton
                         // 分屏下 composer 属于滚动视口内的 sticky dock；按钮若挂在

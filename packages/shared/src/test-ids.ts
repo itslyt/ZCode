@@ -519,6 +519,8 @@ export const TID_V4_SESSION_PANE = "v4-session-pane";
 export const TID_V4_TIMELINE = "v4-timeline";
 /** v4 时间线空态占位 */
 export const TID_V4_TIMELINE_EMPTY = "v4-timeline-empty";
+/** v4 执行中底部常驻时长条（与轮顶「工作中 N 秒」同一读数） */
+export const TID_V4_RUNNING_ELAPSED = "v4-running-elapsed";
 /** v4 投影行（动态后缀为 rowId） */
 export const TID_V4_ROW = "v4-row";
 /** v4 工作区 Hook 待审核提示条容器 */
