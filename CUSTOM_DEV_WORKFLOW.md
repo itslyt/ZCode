@@ -37,7 +37,46 @@ pnpm fmt:check       # 不过：pnpm exec oxfmt <改动文件>
 pnpm architecture:check --changed
 ```
 
-## 4. 真机验证（三层，按需组合）
+### 3.1 `apps/zcode-cli` 必须逐包单独检查（易漏，曾导致打包失败）
+
+根目录 `pnpm typecheck` **不覆盖 `apps/zcode-cli`**（它只 `tsc -b packages/*`）。而 `pnpm --dir apps/zcode-cli typecheck` 在本机因缺 `turbo` 跑不了。所以改了该目录下的代码，必须逐包跑：
+
+```bash
+pnpm --dir apps/zcode-cli/packages/contracts typecheck
+pnpm --dir apps/zcode-cli/packages/core typecheck
+pnpm --dir apps/zcode-cli/packages/cli typecheck      # 见下方基线说明
+```
+
+- **`cli` 包有 67 个既有错误**（未构建的 `@zcode/tui` 导致，报 `Cannot find module '@zcode/tui'` 及一批连锁的 `implicitly any` / `unknown`）。判断是否引入回归用 `git stash -u` 前后对比**错误条数**，不要看具体文件。
+- 典型症状：根 `pnpm typecheck` 全绿、单测全绿，但 `pnpm bundle:desktop` 在 `prepare:remote-assets` 阶段挂在 `tsc` 上。所以**打包前先跑这三个逐包检查**。
+
+### 3.2 测试入口（实测命令）
+
+```bash
+pnpm --dir apps/zcode-cli/packages/core test        # node --import tsx --test test/*.test.ts
+pnpm --dir apps/zcode-cli/packages/services test
+TSX_TSCONFIG_PATH=packages/ui/tsconfig.json node --import tsx --test packages/ui/test/<file>.test.ts
+```
+
+`packages/shared` 无测试。`apps/zcode-cli/packages/core` 的 `test` 脚本是本 fork 新增的；若换包先看该包 `package.json`。
+
+## 4. 真机验证（四层，按需组合）
+
+### 4.0 headless CLI（验证工具行为最快的一层）
+
+不启 UI、不起 server，直接跑 agent 主循环：
+
+```bash
+cd apps/zcode-cli/packages/cli
+export PATH="$HOME/.nvm/versions/node/v24.21.0/bin:$PATH"
+ZCODE_ENV=production node /Users/liuyutong08/Work/ZCode/node_modules/.bin/tsx src/main.ts \
+  -p "<prompt>" --cwd <目录> --surface terminal
+```
+
+- 多轮/跨会话验证用 `--resume <sess_...>`（会话 id 从 DB 查）；`-c/--continue` 续当前目录最近会话。
+- **它会写真实会话库**：`ZCODE_DATA_BASE_DIR` 不影响会话库路径（`adapters/src/storage/session-store/paths.ts` 硬编码 `~/.zcode/cli/db/db.sqlite`），所以每次验证都会在你的真实库里留下会话，事后自己清理。
+- 模型不完全听指令（例如坚持给 Read 补 `limit`），prompt 里要写死约束；模型的**自述不能当证据**，回 DB/日志取证。
+- provider 网关报错时最简 prompt 也会失败，先跑一句 `-p "回复一个字：好"` 区分环境问题与代码问题。
 
 ### 4.1 数据库直查（只读，定位数据问题最快）
 
@@ -70,15 +109,29 @@ agent-browser screenshot /tmp/x.png   # 留证
 - 手动三段式：`pnpm --filter @zcode/desktop exec tsup` → `pnpm exec vite dev`（:5174）→ `ELECTRON_RENDERER_URL=http://localhost:5174 ZCODE_DATA_BASE_DIR=<副本> <repo>/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron . --remote-debugging-port=<port>`；再 `agent-browser connect <port>`。
 - 判别连上哪个实例：eval `location.href` + 侧栏会话对照数据目录；fetch `/src/...` 返回 index.html 是 SPA fallback，**不代表代码旧**。
 
+### 4.4 日志层（工具使用/报错分布的唯一结构化来源）
+
+```bash
+~/.zcode/cli/log/zcode-<YYYY-MM-DD>.jsonl     # 按天一份，jsonl
+```
+
+- 工具成败事件：`tool.call.completed` / `tool.call.failed`。失败事件带 `context.toolName` 与 `error.context.code`（即 handler 返回的 `errorCode`）。
+- 统计报错分布用 `toolName + error.context.code`，**不要解 `error.message` 文本**（本仓禁止依赖错误文本做判断）；原因码是按工具命名空间的，跨工具不冲突。
+- 例子：按工具数失败次数、按原因码看某工具的内部构成。
+- 日志级别约定：工具 handler 的拒绝走 `error` 级 `tool.call.failed`（可恢复，但已如此）；`debug` 不落盘。
+
 ## 5. 打包
 
 ```bash
-ZCODE_ENV=production ZCODE_PREVIEW_IDENTITY=1 pnpm bundle:desktop   # 后台跑约 15 分钟
+ZCODE_ENV=production ZCODE_PREVIEW_IDENTITY=1 pnpm bundle:desktop   # 后台跑，实测约 2–3 分钟
 # 产物：packages/desktop/dist/ZCode Preview-<version>-mac-arm64.dmg
 ```
 
 - 出包门槛：§3 全绿 + 改动已提交；提交风格 = 英文 conventional subject + 中文 body（引用 spec 路径），一个功能一个提交。
 - 本地 unsigned 构建；安装 = 退出 ZCode Preview → dmg 拖入 /Applications 覆盖。
+- **打包前必须先退出 ZCode Preview**（`osascript -e 'quit app "ZCode Preview"'`，再用 `pgrep -f "ZCode Preview.app/Contents/MacOS"` 确认）；别碰官方 `ZCode.app`。
+- `bundle:desktop` 内部会重建 agent bundle（`prepare:runtime-assets` → `prepare:agent-bundle` → `scripts/build-desktop-agent-cli.mjs`），不需要单独构建。
+- 校验产物别只看「构建成功」：直接 grep 包内文件确认改动进去了——agent bundle 在 `dist/mac-arm64/ZCode Preview.app/Contents/Resources/glm/zcode.cjs`，renderer 在 `Contents/Resources/app.asar`（`npx asar extract` 后可查）。导出的符号名可能被压缩，优先查字符串字面量或先查 `packages/core/dist` 的编译产物。
 - 构建报 electron 缺失：`pnpm install` 或 `node node_modules/electron/install.js`。
 
 ## 6. 与官方同步
@@ -88,6 +141,12 @@ ZCODE_ENV=production ZCODE_PREVIEW_IDENTITY=1 pnpm bundle:desktop   # 后台跑�
 ## 7. 通用坑位清单
 
 - edit 工具锚点必须是 read 返回的 3 字符哈希（非行内容/行号）；同文件批量编辑从下往上或拆单发（`E_BATCH_DISPLACED`）；替换文本重复包含锚行内容会产生重复行，发现立即删除修复。
+- **改动会跨会话存活的读状态时，Read 必须只传 `file_path`**：带 `limit` 的 Read 算「范围读」，按既有设计不跨 resume 恢复（`isHistoricalFullReadWindow` 要求 `limit === undefined`，见 `agent/read-file-state-hydrator.ts`），于是连 Read 自己那份都恢复不了，看不出你想验的东西修没修。模型习惯给 Read 补 `limit: 2000`，prompt 里要写死。
+- **`apps/zcode-cli` 单源文件不得超过 400 行**（该目录 AGENTS.md 硬规定）；超了要拆模块，不能继续堆。写之前先 `wc -l` 看一眼。
+- 改提示词/工具选择行为时：系统提示词的工程规范在 `apps/zcode-cli/packages/core/src/context/sections/identity.ts` 的 `PERSONA`（**没有**独立 prompt 文件）；工具描述在各 `tool/handlers/<tool>.ts` 顶部常量。两者都是模型的路由信号，改完用 `buildIdentitySection().content` 断言文本真的渲染出来了。
+- 改完提示词/描述**无法用单测证明效果**（那是模型行为）；要写进 spec 的评估口径，用 §4.4 的日志看真实分布。
+- `pnpm fmt:check` **会扫未跟踪文件**，仓库里放一个没格式化的草稿也会把门禁卡红；`pnpm exec oxfmt <显式路径>` 有时报 `Expected at least one target file`，直接跑 `pnpm fmt:check` 看全局结果更可靠。
+- 写回归测试时注意两个反向陷阱：旧测试可能把 **bug 行为当成了期望**（改写时要真删旧断言，别写成副本）；断言要走消费者真实使用的选择器/入口，而不是自己挑一个好断言的代理值。
 - 值域错配是跨表/跨层关联的头号隐性 bug：关联前先以 DB 直查确认两侧 id 值域一致（历史教训：行 turnId 与 turn_usage.turn_id 不同值域，见 `specs/session-stats-bar.md`）。
 - 后台任务用 job 管理；`| tail` 会吞流式输出，排查启动问题时改写日志文件再 grep。
 - 清理进程前先用 `ps eww`/`lsof` 确认归属，避免误杀用户实例。
