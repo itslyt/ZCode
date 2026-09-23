@@ -145,6 +145,55 @@ Codex 那句用户提示从侧面印证这是真问题（多次压缩掉质量�
 
 **注意**：上面这条只是结论与建议，**尚未实施**。改前先按 §6 第 1 步确认现状。
 
+### 3.7 补全对标（Claude Code / Takumi）与落地清单
+
+除 §2 的 DSH 与 Codex，又核对了两家（依据：`~/.myflicker/workshop/四大Harness压缩能力专题.md` 的二进制/源码提取结果，与本文自己读代码的结论不冲突）：
+
+**Claude Code（三层）**：microcompact（时间触发、无模型调用）→ auto-compact（9 段摘要，含「全部用户消息」与安全指令 verbatim）→ **precomputeCompaction（预计算，触发前就把摘要算好）**。另配 `PreCompact`/`PostCompact` hooks（PreCompact 有**阻断权**）与完整遥测。
+
+**Takumi（MyFlicker 原生，两层）**：pruning（默认**关**）+ compaction（默认开）。其触发是「小窗口预留固定量、大窗口按比例」，在 330k 处无缝衔接。
+
+### 3.7.1 ZCode 实测缺口（已逐项 grep 确认）
+
+| 能力          | 谁有              | ZCode              | 性质                                                                |
+| ------------- | ----------------- | ------------------ | ------------------------------------------------------------------- |
+| 工具配对保护  | DSH（内核不变量） | **无**             | 正确性                                                              |
+| 转写落盘接线  | Takumi / 宿主层   | **机制有、未接线** | 可回溯                                                              |
+| 摘要输入瘦身  | Takumi            | **无**             | 成本                                                                |
+| 预计算压缩    | Claude Code       | **无**             | 延迟                                                                |
+| blocking 检测 | Takumi            | **无**             | 健壮性                                                              |
+| 熔断          | Takumi            | **已有**           | `MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES = 3`                          |
+| PTL 重试      | Takumi            | **部分**           | `MAX_COMPACT_PROMPT_TOO_LONG_RETRIES = 3`（是否按比例丢轮次未验证） |
+
+### 3.7.2 落地顺序
+
+**① 工具配对保护（正确性，最高优先）** —— DSH 把「切点不得拆散 `tool_use`/`tool_result`」做成内核级不变量（`toolPairingBalancedBefore/After`，注释：`true when no unanswered tool call crosses the cut`）。拆散会让 **API 直接报错**。已 grep 确认：ZCode 压缩代码里 `pairing|paired|unanswered|orphan` **全部搜不到**。这不是优化项，是一类**静默故障**（压缩后请求被 provider 拒，原因不在报错信息里）。
+
+**② 接上 `transcriptPath`（一句话成本）** —— 机制已写好但**未接线**：
+
+- `compact/prompt.ts:146` 已实现「If you need specific details from before compaction… read the full transcript at: <path>」；
+- 但调用点 `runtime/methods/compact-active.ts:518` 只传了 `{ suppressFollowup: true }`，**未传 `transcriptPath`**。
+
+接上后，压缩丢掉的东西模型能自己找回来——即「把压缩从信息丢失事件变成可回溯的常规操作」，成本几乎为零。
+
+**③ 摘要输入瘦身（成本）** —— Takumi 在摘要前把工具结果压成一行 `[Tool Results Summary: Tool X executed; …]`、纯工具 assistant 消息变 `[Assistant performed tool operations]`、图片变 `[image]`。ZCode 是**把原始对话直接喂给摘要模型**。它与 §3.1 的缓存复用是同一笔账的两个方向（一个让前缀命中缓存，一个让输入本身变小），**一起做收益最大**。
+
+**④ 预计算压缩（延迟）** —— Claude Code 是四家里唯一做到「触发前就把摘要算好」。本机实测一次压缩**阻塞 69 秒**（`compact.completed` 的 `durationMs: 68821`）。但改动最大、风险最高（要提前触发一次 LLM 调用，并处理「预计算完会话又变了」的失效），**放最后单独评估**。
+
+**⑤ blocking 检测（健壮性）** —— Takumi 在用量 ≥ 输入上限 − 3000 时判定阻塞态，自动压缩关着就直接返回明确错误（`The conversation has exceeded the model's context window. Run /compact…`）。本机实测的体验是**静默死亡**，加这个至少会明确告知去 `/compact`。
+
+### 3.7.3 一条加深了 §3.6 判断的论据
+
+Takumi 的 90% 论证指出：在该路由上比例**同时约束输出预算**——`clampMaxTokensToContext` 把每步输出上限派生为 `min(requested, contextWindow − estimatedContext − 4096)`。比例取 1.0 时这个下界掉到 **1 token**，于是 step 在发出工具调用前被截断，**Agent Loop 会把结果误读为「正常结束的回合」**。
+
+对 ZCode 是双向的：它的 `outputReserve` 正是同一件事的保护（所以绝对公式站得住，不是缺陷）；但反过来说，**固定预留一旦小于实际输出需求，就会重现那个「回合被静默截断」的故障**。所以 §3.6 的 `min(W − outputReserve − buffer, ratio × W)` 更该做：**输出预留保下限，比例保上限**。
+
+### 3.7.4 明确不抄
+
+- **spill 落盘（DSH 第 3 层）**：ZCode 已有 `READ_MAX_OUTPUT_TOKENS` 截断 + 清空旧结果，再加一层 spill artifact + locator 等于给工具结果做第二套存储；且 DSH 自己的注释都在防 `read → spill → read again` 死循环（"`read` is precisely the tool that produces huge logs"），说明这层有真实的坑。
+- **按模型差异化阈值**：ZCode 已经走 `modelContextBudgetStrategy` / `preflight-v1`，不缺。
+- **OTel 遥测**：jsonl 日志已够用（且该报告自述 MyFlicker 部署下 DSH 的 OTel 是禁用的）。
+
 ## 4. 验证方法
 
 | 数据                     | 位置                                                                                                                                                                                                               |
