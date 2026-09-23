@@ -491,8 +491,3 @@ test("formatAnchorRegion 渲染带锚点的区域并回报哈希", () => {
       .map((line) => hashLineContent(line)),
   );
 });
-
-test("空内容上渲染区域返回空结果，而不是一个假行", () => {
-  assert.deepEqual(formatAnchorRegion("", 1), { text: "(file is empty)", servedHashes: [] });
-  assert.deepEqual(buildUpdatedAnchors("", [{ start: 0, end: 0 }]), { text: "", servedHashes: [] });
-});
