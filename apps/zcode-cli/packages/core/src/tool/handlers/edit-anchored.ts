@@ -33,8 +33,14 @@ import {
   findOverlappingAnchorEdits,
   resolveAnchorEdits,
   type AnchorEditRequest,
+  type AnchorFailureReason,
 } from "../anchor-resolve.js";
 import { collectServedAnchors, mergeServedAnchors } from "../anchor-served.js";
+import {
+  ANCHOR_FAILURE_ERROR_CODE,
+  createEditAnchoredFailure,
+  EDIT_ANCHORED_ERROR_CODE,
+} from "../edit-anchored-errors.js";
 import { createStructuredPatch } from "../diff.js";
 import { resolveWorkspacePath } from "../path-policy.js";
 import {
@@ -54,7 +60,7 @@ import type {
 const TOOL_NAME = "EditAnchored";
 
 const EDIT_ANCHORED_PROVIDER_DESCRIPTION = [
-  "Replace line ranges in a file addressed by the anchors that Read prints.",
+  "Replace line ranges in a file addressed by the anchors that Read prints. This is the default way to edit a file you have already read.",
   "",
   "Read prefixes every line with an anchor `N:HASH│`. Pass those anchors here instead of retyping the old text:",
   "",
@@ -68,7 +74,7 @@ const EDIT_ANCHORED_PROVIDER_DESCRIPTION = [
   "- Anchors stay valid after edits elsewhere in the file: if line numbers moved, the anchor's hash re-locates it. The result returns fresh anchors for the changed region.",
   "- Only lines you have already read can be edited. If an anchor is rejected, the error includes the region's current anchors.",
   "",
-  "Use `Edit` instead when you want to select an occurrence by its text rather than by position.",
+  "Use `Edit` instead when the target line was never shown to you (for example you only found it with Grep), for `.ipynb` / binary / non-UTF-8 files, or after two `EditAnchored` failures on the same file.",
 ].join("\n");
 
 const NOTEBOOK_FILE_MESSAGE =
@@ -118,7 +124,7 @@ const editAnchoredHandler: ToolHandler = async (input, context) => {
   });
 
   if (extname(filePath).toLowerCase() === ".ipynb") {
-    return editAnchoredFailure(NOTEBOOK_FILE_MESSAGE);
+    return createEditAnchoredFailure(EDIT_ANCHORED_ERROR_CODE.NOTEBOOK_FILE, NOTEBOOK_FILE_MESSAGE);
   }
 
   const read = await fileSystemPort.readTextFile(
@@ -153,12 +159,13 @@ const editAnchoredHandler: ToolHandler = async (input, context) => {
         servedHashes: failure.servedHashes,
       });
     }
-    return editAnchoredFailure(failure.text);
+    return createEditAnchoredFailure(ANCHOR_FAILURE_ERROR_CODE[resolved.reason], failure.text);
   }
 
   const overlap = findOverlappingAnchorEdits(resolved.edits);
   if (overlap) {
-    return editAnchoredFailure(
+    return createEditAnchoredFailure(
+      EDIT_ANCHORED_ERROR_CODE.OVERLAPPING_EDITS,
       [
         `Edit ${overlap[0] + 1} and edit ${overlap[1] + 1} target overlapping line ranges.`,
         "Merge them into one entry, or make each range narrower. No edits were applied.",
@@ -207,14 +214,6 @@ const editAnchoredHandler: ToolHandler = async (input, context) => {
     updatedAnchors: updatedAnchors.text,
   } satisfies EditAnchoredOutput;
 };
-
-// -----------------------------------------------
-// Failure helper
-// -----------------------------------------------
-
-function editAnchoredFailure(message: string): ToolHandlerFailure {
-  return { result: false, errorCode: 1, message };
-}
 
 // -----------------------------------------------
 // Read state

@@ -322,7 +322,62 @@ error 件 tool 名不认识:            restored=0 size=0
 
 ### 阶段 2：实测后再决定主力地位
 
-用真实会话对比 `EditAnchored` 与 `Edit` 的：首次成功率、失败后恢复轮次、输出 token、错行落盘次数。**只有在数据支持时才把锚点工具写进提示词作为首选**；否则保持「两个都注册、模型自选」。
+原计划是「用真实会话对比 `EditAnchored` 与 `Edit` 的首次成功率、失败后恢复轮次、输出 token、错行落盘次数，只有数据支持时才把锚点工具写进提示词作为首选」。
+
+**用户已决定先切主备，不等数据**：目标就是以 `EditAnchored` 为主、`Edit` 为辅，然后用一段时间的真实使用数据再回来优化。所以本节从「待决策」变成「已实施」，而原来要测的那些指标改成**切换后的评估口径**。
+
+#### 主备规则
+
+| 场景                                        | 用哪个             | 依据                           |
+| ------------------------------------------- | ------------------ | ------------------------------ |
+| 已读过该文件（拿到过 `N:HASH│` 锚点）       | **`EditAnchored`** | 零复述、锚点免疫位移、批量原子 |
+| 连续多步编辑同一文件                        | **`EditAnchored`** | 无需重读                       |
+| 只 grep 到位置、目标行从未展示              | `Edit` 或先 `Read` | 锚点工具会硬拒                 |
+| 新建文件 / 整文件重写                       | `Write`            | 无锚点可用                     |
+| `.ipynb` / 二进制 / 非 UTF-8                | `Edit` 或 `Bash`   | 锚点依赖文本行                 |
+| **`EditAnchored` 在同一文件上连续失败两次** | **降级到 `Edit`**  | 8 级模糊级联容错更宽，兜底     |
+
+降级那条是关键：主备分层要有明确的降级触发条件，否则模型会在一个工具上反复试错。本轮先把它写进提示词（模型能自己数失败次数），不做运行时检测——先看真实使用里到底会不会反复撞，再决定要不要上机制。
+
+#### 落地位置
+
+- `context/sections/identity.ts` 的 `PERSONA`：把原来的 “Edit discipline” 那一条改成工具选择规则（原来只讲了先读后写与批量纪律，没有工具选择指导）。
+- `handlers/edit-anchored.ts` 的 `EDIT_ANCHORED_PROVIDER_DESCRIPTION`：自称已读文件时的默认选择，不再把自己写成备选。
+- `handlers/edit.ts` 的 `EDIT_PROVIDER_DESCRIPTION`：补一句「已读过的文件优先用 `EditAnchored`」。
+
+不改注册表、不改 handler 逻辑、不移除 `Edit`（「明确不做」里有这条）。
+
+#### 切换后的评估口径（下次看数据时用这个）
+
+数据源已经就绪，不需要新增埋点：
+
+- **使用分布**：`~/.zcode/cli/db/db.sqlite` 的 `part` 表，每个工具部件带 `tool` 与 `state.status`。
+- **报错分布**：`~/.zcode/cli/log/zcode-<date>.jsonl` 的 `tool.call.failed` 事件，带 `context.toolName` 与 `error.context.code`。
+
+切主备前这两个源就已经能用（实测当日：EditAnchored 20 次失败、Read 6、Edit 3、Write 2），**但原因分布分不出来**：EditAnchored 的 7 条失败路径全都填 `errorCode: 1`，原因只在消息文本里。所以本轮同时给每条路径一个稳定码（见下），这样用 `toolName + error.context.code` 就能直接分组，不必解析文本（也符合本仓「不依赖错误文本做流程判断」的规则）。
+
+要看的四个指标：
+
+1. `EditAnchored` 与 `Edit` 的调用比——验证「为主」是否真的发生。
+2. `EditAnchored` 各原因码的占比——`unserved` 高说明模型没读就改（提示词没说清或读被截断）；`stale` 高说明外部改动频繁；`ambiguous` 高说明哈希碰撞在真实语料上超预期。
+3. 同一文件上连续失败的次数——验证「两次降级」是否需要升级成运行时机制。
+4. 每次编辑的往返轮次——主备切错时最直接的代价。
+
+#### 失败原因码
+
+数值只在 EditAnchored 命名空间内唯一（同 `task-output` 用 1/2、`resolve-workflow-question` 用 21-24 的惯例），跨工具不冲突，靠日志里的 `toolName` 区分。
+
+| 原因                | 码  | 含义                               |
+| ------------------- | --- | ---------------------------------- |
+| `MALFORMED_ANCHOR`  | 1   | 锚点格式不合法（不是 `行号:哈希`） |
+| `UNSERVED_ANCHOR`   | 2   | 锚点从未展示给模型                 |
+| `STALE_ANCHOR`      | 3   | 锚点所指内容已变                   |
+| `AMBIGUOUS_ANCHOR`  | 4   | 哈希在多处命中，拒绝猜             |
+| `REVERSED_RANGE`    | 5   | `remove_to` 在 `remove_from` 之前  |
+| `OVERLAPPING_EDITS` | 6   | 同一次调用里两条编辑区间重叠       |
+| `NOTEBOOK_FILE`     | 7   | `.ipynb` 必须走 `Edit` 改 JSON     |
+
+`AnchorFailureReason` → 码用 `Record<AnchorFailureReason, number>` 声明，新增 reason 时编译期就报错，逼着补码，不会默默落到默认值。
 
 ---
 

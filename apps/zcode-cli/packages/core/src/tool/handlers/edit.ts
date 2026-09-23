@@ -64,6 +64,7 @@ const EDIT_PROVIDER_DESCRIPTION = [
   "- `old_string` must match the file exactly, including indentation, and be unique — the edit fails otherwise. Strip the Read line prefix (line number + tab) before matching.",
   "- `replace_all: true` replaces every occurrence instead.",
   "- `edits: [{old_string, new_string}]` applies several edits to one file in a single atomic call. Every entry is located against the file's ORIGINAL content, so entries never displace each other; if any entry fails, nothing is written. Prefer it over repeated single-edit calls.",
+  "- For a file you have already read, prefer `EditAnchored`: it edits by the anchors Read printed, so you do not retype the old text and the anchors survive line shifts. Fall back to this tool when the target line was never shown to you, for `.ipynb` / binary / non-UTF-8 files, or after two `EditAnchored` failures on the same file.",
 ].join("\n");
 const NON_UNIQUE_OLD_STRING_MESSAGE =
   "old_string is not unique in the file. Provide more surrounding context or set replace_all to true.";
