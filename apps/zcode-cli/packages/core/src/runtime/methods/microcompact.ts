@@ -102,13 +102,17 @@ export async function microcompactIfNeeded(
   });
 }
 
-function resolveLocalMicrocompactConfig(
+export function resolveLocalMicrocompactConfig(
   config: AutoCompactPolicyConfig,
 ): LocalMicrocompactPolicyConfig {
   const fullCompactThreshold = getAutoCompactThreshold(config);
   return {
     ...config.microcompact,
-    enabled: config.microcompact?.enabled === true,
+    // 本 fork 默认开启：上游是 `=== true`（opt-in），实测日志里一直是 `reason: "disabled"`，
+    // 于是这一层从未生效，旧工具结果一路堆到全量压缩阈值。改成 `!== false`：默认开，
+    // 需要时仍可显式关闭。它是便宜层（只清旧工具结果的内容，保留最近若干条），
+    // 触发阈值也低于全量压缩，本就应该先它一步生效。
+    enabled: config.microcompact?.enabled !== false,
     thresholdTokens:
       config.microcompact?.thresholdTokens ??
       buildDefaultMicrocompactThreshold(fullCompactThreshold),
