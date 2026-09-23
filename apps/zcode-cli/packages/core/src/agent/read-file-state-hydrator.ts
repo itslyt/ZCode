@@ -29,11 +29,12 @@ type CompletedToolPart = ToolPart & {
  * 失败但已经写过读状态的部件。
  *
  * `EditAnchored` 的 stale / ambiguous 拒绝会回传当前锚点（reject-and-serve）并把它们并进
- * served，这次调用的「模型看过哪些行」因此变了。不带上的话，resume 后模型照拄错误信息里
+ * served，这次调用的「模型看过哪些行」因此变了。不带上的话，resume 后模型照抄错误信息里
  * 的锚点重发会撞 unserved——跨会话的 reject-and-serve 就断了。
  *
- * 其它工具不在失败路径写读状态，所以它们的 error 部件解析不出结构化 metadata，
- * 走不到恢复（见 `restoreMetadataToolState`）。
+ * 恢复的判据是「部件带没带合法读状态」，**不是**工具名：`Write` / `Edit` 的 error 部件只要
+ * 带了合法 metadata 也会恢复。这是有意保留的统一行为（读状态与调用成功与否无关，写不写由
+ * handler 决定），不是「其它工具的失败件天然被跳过」。
  */
 type FailedToolPart = ToolPart & {
   state: ToolPart["state"] & {

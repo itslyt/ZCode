@@ -15,7 +15,7 @@ export function createErrorResult(
      *
      * 读状态是「模型对文件的视图」，由产生它的那次调用决定，与那次调用成功还是失败无关。
      * 典型场景：`EditAnchored` 的 stale 拒绝会把当前锚点渲染给模型（reject-and-serve），
-     * 那些行就算看过了；不带上的话，resume 后模型照拄错误信息里的锚点重发会撞 unserved。
+     * 那些行就算看过了；不带上的话，resume 后模型照抄错误信息里的锚点重发会撞 unserved。
      */
     readFileStateMetadata?: PersistedReadFileStateMetadata;
   },
