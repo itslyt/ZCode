@@ -1,6 +1,6 @@
 # 自定义开发流程文档（fork 自维护：改码 / 验证 / 打包通用流程）
 
-> 面向接手会话的**通用流程**：在本 fork（`custom` 分支）上做任何自维护功能改动时，怎么改、怎么验、怎么打包、怎么与官方同步，以及通用注意事项。
+> 面向接手会话的**通用流程**：在本 fork（`custom` 分支）上做任何自维护功能改动时，怎么改、怎么验、怎么提交、怎么打包，以及通用注意事项。本文走自研路线，不涉及上游同步（见 §6）。
 > 仓库规范以 `AGENTS.md` / `DESIGN.md` 为准；具体功能的产品规则、状态所有者与数据口径写在各自 `specs/<feature>.md`，**不在本文重复**。
 
 ## 0. 背景
@@ -26,6 +26,10 @@ node scripts/check-workspace-freshness.mjs                  # AGENTS.md 要求�
 4. **UI**：复用既有组件与插槽（见各功能 spec）；i18n 键 zh/en 两份 locale 同步加；样式遵循 `DESIGN.md` token。
 5. **轮询持有者唯一**：列表/行级展示数据由上层容器单次轮询、经 Context 下发；禁止行级组件各自轮询。
 6. 补/改单测（纯派生逻辑放可测模块），再跑 §3。
+7. **一个需求一个提交，写完就提，不必先问。** 不需要等一轮对话结束、也不要攒着多个需求一起提。提交风格 = 英文 conventional subject + 中文 body（写清原因、证据、未验证范围，引用 spec 路径）。
+   - 同一需求的多个文件一起提交；需求之间独立就拆成多个提交，按应审查的顺序排。
+   - 提交后在回复里报出 commit hash，让人能直接对账。
+   - 不要把手头这轮改动留成未提交状态——后续所有步骤（打包、真机验证）都以「改动已提交」为前提。
 
 ## 3. 静态检查（每次改动必跑，报告真实结果）
 
@@ -136,9 +140,11 @@ ZCODE_ENV=production ZCODE_PREVIEW_IDENTITY=1 pnpm bundle:desktop   # 后台跑�
 - 校验产物别只看「构建成功」：直接 grep 包内文件确认改动进去了——agent bundle 在 `dist/mac-arm64/ZCode Preview.app/Contents/Resources/glm/zcode.cjs`，renderer 在 `Contents/Resources/app.asar`（`npx asar extract` 后可查）。导出的符号名可能被压缩，优先查字符串字面量或先查 `packages/core/dist` 的编译产物。
 - 构建报 electron 缺失：`pnpm install` 或 `node node_modules/electron/install.js`。
 
-## 6. 与官方同步
+## 6. 上游同步（基本不做）
 
-`git fetch upstream` → 在 `custom` 上 `rebase upstream/main` → 冲突集中在自维护改动文件（以各 spec 组件地图定位）→ 重跑 §3 与 §5。
+本 fork 走自研路线，官方 ZCode 基本不更新，所以**不把同步上游当常规步骤**，不要主动提或定期做。
+
+真的需要时（官方突然发了值得要的改动）：`git fetch upstream` → 在 `custom` 上 `rebase upstream/main` → 冲突集中在自维护改动文件（以各 spec 组件地图定位）→ 重跑 §3 与 §5。注意自维护改动越多，rebase 越痛——这也是不走这条路的一个理由。
 
 ## 7. 通用坑位清单
 
