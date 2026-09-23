@@ -776,6 +776,10 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
           />
         )}
         {onRemove && isEditingAttachment ? (
+          // 必须显式给 bg-primary：AttachmentRemove 的 grid 分支底色是 bg-background/80，
+          // 而调用方只给了 text-primary-foreground。浅色主题下两者都是近白色，X 图标
+          // 叠在图片上完全看不见（点击仍生效，只是没有对比度）。与主输入框的附件
+          // 删除按钮保持同一组配色。
           <AttachmentRemove
             placement="corner"
             size="icon"
@@ -783,7 +787,7 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
             aria-label={intl.formatMessage({ id: "chat.attachments.remove" })}
             label={intl.formatMessage({ id: "chat.attachments.remove" })}
             data-testid={testId(TID_V4_EDIT_ATTACHMENT_REMOVE, `${rowId}-${index}`)}
-            className="absolute top-0.5 right-0.5 z-10 size-3.5 rounded-full p-0 text-primary-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+            className="absolute top-0.5 right-0.5 z-10 size-3.5 rounded-full bg-primary p-0 text-primary-foreground opacity-0 transition-opacity hover:bg-primary/80 hover:text-primary-foreground group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
           >
             <XIcon className="size-2.5" />
           </AttachmentRemove>
