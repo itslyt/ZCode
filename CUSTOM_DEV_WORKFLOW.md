@@ -143,7 +143,16 @@ ZCODE_ENV=production ZCODE_PREVIEW_IDENTITY=1 pnpm bundle:desktop   # 后台跑�
 - **打包不要求退出 ZCode Preview**（实测：运行中打包成功，app 不受影响）。electron-builder 输出到 `packages/desktop/dist/`（`ZCODE_DESKTOP_DIST_DIR` 可改），而运行中的 app 在 `/Applications/ZCode Preview.app`，两者不相干。所以**自举时可以直接在 Preview 的对话里让它打包**。
 - 打包耗时 2–3 分钟，用 `nohup ... > /tmp/zcode-bundle.log 2>&1 &` 后台跑，写日志文件而不是 `| tail`（`| tail` 会吞流式输出，见 §7）。
 - 真正需要退出的只有两种情况：**安装**（覆盖 `/Applications/ZCode Preview.app`），以及你从 `dist/` 直接启动过实例（那时重建会撞上正在跑的 bundle）。自举循环的最后一步（退出 → 拖入 → 重开）必须由人在外面做：agent 跑在 Preview 进程里，没法退出自己再把自己换掉。
-- 检测主进程用 `pgrep -x "ZCode Preview"`；`pgrep -f ".../Contents/MacOS"` 匹配不到（`ps` 里主进程的命令名就是 `ZCode Preview`）。退出用 `osascript -e 'quit app "ZCode Preview"'`。别碰官方 `ZCode.app`。
+- 检测主进程用 `pgrep -x "ZCode Preview"`（launchd 上下文实测可命中 5306；在 agent 的沙箱 shell 里可能看不到，别据此判 app 没跑，用 `ps -eo pid,comm | awk '$2=="ZCode" && $3=="Preview"'` 兜底）。退出用 `osascript -e 'quit app "ZCode Preview"'`。别碰官方 `ZCode.app`。
+- **dmg 挂载会残留，是每次打包后必须清的一步**（实测本机積了 23 个挂载点）。成因：Finder 双击 dmg 或 `hdiutil attach` 会挂载，但关闭窗口/拖完 app **不会自动卸载**；下次打包覆盖同名 dmg 时，旧文件块被已挂载的卷钉住（同一路径下的 23 个挂载点里 app 时间戳从 Sep 21 到 Sep 23 各不相同）。
+  - 不是文件堆积：`dist/` 里 dmg 始终只有 1 个，每次打包都在覆盖；也不影响磁盘（启动盘 78Gi 可用，卸载前后 `df` 不变）。
+  - 危害是“Finder 侧边栏里一排同名卷”+ 可能误拖到旧版 app。清理：
+    ```bash
+    ps aux | grep "/Volumes/ZCode Preview" | grep -v grep   # 先确认没进程在跑
+    for i in "" $(seq 1 40); do v="ZCode Preview 3.14.0-arm64${i:+ $i}"; \
+      [ -d "/Volumes/$v" ] && hdiutil detach "/Volumes/$v"; done
+    ```
+  - 版本号会变，按 `ls -1 /Volumes | grep "ZCode Preview"` 的实际名字改；`hdiutil info | grep -c image-path` 看剩余数。
 - `bundle:desktop` 内部会重建 agent bundle（`prepare:runtime-assets` → `prepare:agent-bundle` → `scripts/build-desktop-agent-cli.mjs`），不需要单独构建。
 - 打包日志里的 `Unsupported engine: wanted 24.14.0 (current v24.21.0)` 是既有 WARN，不是失败。
 - 校验产物别只看「构建成功」：直接 grep 包内文件确认改动进去了——agent bundle 在 `dist/mac-arm64/ZCode Preview.app/Contents/Resources/glm/zcode.cjs`，renderer 在 `Contents/Resources/app.asar`（`npx asar extract` 后可查）。导出的符号名可能被压缩，优先查字符串字面量或先查 `packages/core/dist` 的编译产物。
