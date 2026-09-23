@@ -87,15 +87,12 @@ const CODING_ONLY_TOOLS = [
   "TodoRead",
   "TodoWrite",
   "WebFetch",
-  "WebSearch",
   "Skill",
   "Agent",
   "SendMessage",
   "TaskOutput",
   "TaskStop",
   "AskUserQuestion",
-  "EnterPlanMode",
-  "ExitPlanMode",
 ] as const;
 
 /**

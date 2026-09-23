@@ -5,7 +5,7 @@ import { resolveBuiltInToolAllowlist } from "../src/runtime/helpers/tool-allowli
 import { builtInTools } from "../src/tool/handlers/index.js";
 
 // 本 fork 的工具面取舍见 specs/personal-fork-simplification.md §8。
-// 搜索用专用的 Glob/Grep，不走 Bash 的 find/grep（embedded search branch）。
+// 搜索用专用的 Glob/Grep（不走 Bash 的 find/grep）；计划模式工具与 WebSearch 不在面里。
 
 const allowlist = resolveBuiltInToolAllowlist({} as never) ?? [];
 
@@ -25,9 +25,15 @@ test("工具面含 Glob/Grep", () => {
   assert.ok(allowlist.includes("Grep"), "Grep 应在默认工具面里");
 });
 
-test("Glob/Grep 的定义仍在注册表里，只是不再被 branch 摘掉", () => {
+test("工具面不含计划模式工具与 WebSearch", () => {
+  assert.ok(!allowlist.includes("EnterPlanMode"));
+  assert.ok(!allowlist.includes("ExitPlanMode"));
+  assert.ok(!allowlist.includes("WebSearch"));
+});
+
+test("被移出工具面的定义仍在注册表里，随时可恢复", () => {
   const registered = new Set(builtInTools.map((entry) => entry.metadata.name));
-  for (const name of ["Glob", "Grep"]) {
+  for (const name of ["Glob", "Grep", "EnterPlanMode", "ExitPlanMode", "WebSearch"]) {
     assert.ok(registered.has(name), `${name} 的定义应仍在 builtInTools 里`);
   }
 });
