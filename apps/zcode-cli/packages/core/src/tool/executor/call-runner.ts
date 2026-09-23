@@ -566,10 +566,13 @@ async function executeToolCallImpl(
       traceContext,
       options?.signal,
     );
+    // 失败也要带上 handler 已上报的读状态：拒绝路径会并 served（reject-and-serve），
+    // 这份「看过哪些行」的信息不能因为那次调用失败就在跨会话时丢掉。
     let result = createErrorResult(
       canonicalToolCall,
       error instanceof Error ? error : new Error(String(error)),
       durationMs,
+      readFileStateMetadata ? { readFileStateMetadata } : undefined,
     );
     const baseModelContent = result.error
       ? isToolHandlerFailureError(error) && typeof result.modelContent === "string"

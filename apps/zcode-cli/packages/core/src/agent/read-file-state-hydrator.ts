@@ -25,6 +25,25 @@ type CompletedToolPart = ToolPart & {
   };
 };
 
+/**
+ * 失败但已经写过读状态的部件。
+ *
+ * `EditAnchored` 的 stale / ambiguous 拒绝会回传当前锚点（reject-and-serve）并把它们并进
+ * served，这次调用的「模型看过哪些行」因此变了。不带上的话，resume 后模型照拄错误信息里
+ * 的锚点重发会撞 unserved——跨会话的 reject-and-serve 就断了。
+ *
+ * 其它工具不在失败路径写读状态，所以它们的 error 部件解析不出结构化 metadata，
+ * 走不到恢复（见 `restoreMetadataToolState`）。
+ */
+type FailedToolPart = ToolPart & {
+  state: ToolPart["state"] & {
+    error: string;
+    status: "error";
+  };
+};
+
+type ReadStateBearingToolPart = CompletedToolPart | FailedToolPart;
+
 export async function hydrateReadFileStateFromSession(input: {
   branchCutAfterMessageId?: MessageId;
   messages: MessageWithParts[];
@@ -54,7 +73,7 @@ export async function hydrateReadFileStateFromSession(input: {
     if (message.info.role !== "assistant") continue;
 
     for (const part of dedupeParts(message.parts)) {
-      if (!isCompletedToolPart(part)) continue;
+      if (!isReadStateBearingToolPart(part)) continue;
 
       if (part.tool === "Read") {
         const restored = restoreReadToolState(input, part, result);
@@ -86,7 +105,7 @@ function restoreReadToolState(
   input: {
     readFileState: ReadFileStateMap;
   },
-  part: CompletedToolPart,
+  part: ReadStateBearingToolPart,
   result: ReadFileStateHydrationResult,
 ): boolean {
   const toolInput = asRecord(part.state.input);
@@ -120,7 +139,7 @@ function restoreReadToolState(
 
 function restoreMetadataToolState(
   readFileState: ReadFileStateMap,
-  part: CompletedToolPart,
+  part: ReadStateBearingToolPart,
   expectedTool: PersistedReadFileStateTool,
 ): boolean {
   const metadata = parseReadFileStateMetadata(part.state.metadata);
@@ -187,8 +206,10 @@ function dedupeParts(parts: MessagePart[]): MessagePart[] {
   return [...byId.values()];
 }
 
-function isCompletedToolPart(part: MessagePart): part is CompletedToolPart {
-  return part.type === "tool" && part.state.status === "completed" && "output" in part.state;
+function isReadStateBearingToolPart(part: MessagePart): part is ReadStateBearingToolPart {
+  if (part.type !== "tool") return false;
+  if (part.state.status === "completed") return "output" in part.state;
+  return part.state.status === "error" && "error" in part.state;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

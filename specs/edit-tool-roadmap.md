@@ -235,19 +235,90 @@ Edit 锚点：  remove_from: "22:f1",  remove_to: "24:0e"
 
 **已修：内容清空后渲染出假行**（报告 §7.2）。`splitLines("")` 返回 `[""]` 而不是空数组，所以 `lines.length === 0` 这个判据在空内容上不成立。删光全文后 `buildUpdatedAnchors("")` 会凭空渲染出 `1:RVM2│`，而 `RVM2` 就是 `hashLineContent("")`——并进 served 之后，该文件里任意空行都变成「已读」，模型可以引用它们的锚点。这是 §1 那类问题（放宽方向）的缩小版，已改用 `isEmptyContent` 判据，`formatAnchorRegion` 同款问题一并修掉。
 
-**缺陷仍开着（待决策）：拒绝路径并进的 served 不跨会话**（报告 §7.1）。
+**已修：拒绝路径并进的 served 不跨会话**（报告 §7.1）。
 
 `f9730f8` 让拒绝路径也写 served 以闭合 reject-and-serve 循环，但这个闭合只在单次会话内成立：handler 返回 `ToolHandlerFailure` → `call-runner` 转成异常抛出 → catch 分支的 `createErrorResult`（`executor/errors.ts:6`）不携带 `readFileStateMetadata`，所以 `tool-part-metadata.ts:39` 写不出 `readFileState`；且 hydrator 的 `isCompletedToolPart`（`read-file-state-hydrator.ts:190`）只接受 `status: "completed"` 的部件。
 
-**范围要说准**：丢的是**仅拒绝路径**并进的那一份 served。成功路径写的读状态照常落盘（`call-runner.ts:521` 把 `readFileStateMetadata` 带在成功结果上 → `completedToolPartMetadata` → completed 部件 → hydrator 恢复），所以 resume 后「成功编辑并进的 served」是好的，§4 的修复没有被这条抵消。
+**范围**：丢的是**仅拒绝路径**并进的那一份 served。成功路径写的读状态照常落盘（成功结果带 `readFileStateMetadata` → completed 部件 → hydrator 恢复），§4 的修复没有被这条抵消。
 
-影响方向是**保守的**：resume 后模型从 stale 错误信息里抄来的锚点变 unserved，需要重新 Read；没有安全或正确性风险。
+#### 产品规则
 
-修它需要改 4 处：`createErrorResult` 增一个可选参数、`call-runner` catch 分支传入已在作用域内的 `readFileStateMetadata`、`turn-tools.ts:337` 失败分支的 metadata 带上它、hydrator 接受 error 部件。前两处对其它工具是惰性的——已核实只有 `EditAnchored` 在失败路径写读状态（`edit-anchored.ts` 的 `mergeServedAnchorsAfterRejection`），`read.ts` / `edit.ts` / `write.ts` 的写入都在成功路径。真正有语义的是 hydrator 那处，它会放宽**所有**工具 error 部件的恢复语义。
+**读状态是「模型对文件的视图」，它由产生它的那次工具调用决定，与那次调用成功还是失败无关。** 持久化通道不得按 success 过滤——否则「拒绝是零副作用的」这条规则会在跨会话时被静默破坏。
 
-注意这是个**全有或全无**的改动：只做前三处、不改 hydrator，失败件带上了 metadata 也不会被读，等于没改。
+对应的反向规则同样保留：**拒绝只并 served，不改门禁字段**（§6）。两条合起来是：拒绝路径会写读状态，但写进去的只是 served 集合。
 
-**本轮不做**，理由是验证成本而不是复杂度：在一个共享的错误/持久化层上落一个只做过单测的改动，正是 §6 的成因。要做就在单独一轮里做，先补 resume 端到端验证（两段真实会话：会话 1 触发 stale 拒绝，会话 2 resume 后直接用抄来的锚点重发）。
+#### 状态所有者与写入顺序
+
+```
+handler (EditAnchored)
+  └─ context.recordReadFileStateMetadata(metadata)   ← 上报，成功/拒绝两条路都调
+       │
+call-runner                                          ← 唯一把上报值接到结果上的地方
+  ├─ 成功：ToolExecutionResult.readFileStateMetadata  （已有）
+  └─ 失败：createErrorResult(..., { readFileStateMetadata })  ← 本次补上
+       │
+runtime/methods/tool-part-metadata.ts                ← 写进 tool part
+  ├─ completed 部件：completedToolPartMetadata(result)（已有）
+  └─ error 部件：同样带 readFileState（本次补上）
+       │
+agent/read-file-state-hydrator.ts                    ← resume 时恢复
+  └─ 接受 completed 与 error 两种部件
+```
+
+#### 接口
+
+`createErrorResult(toolCall, error, durationMs?, options?)` 的 `options` 增一个可选 `readFileStateMetadata?: PersistedReadFileStateMetadata`。不新增位置参数，新增字段是可选的，对现有调用点都是加性的。
+
+传 `options` 的调用点实际只有 2 处（初版写的「4 个」是错的）：`permission-flow.ts:329` 的 `{ preserveReasonFormatting: true }` 与本处 `call-runner.ts:575`。`createPermissionErrorResult`（`errors.ts:105`）是个带自己 `options` 的转发 wrapper，不算在内。
+
+#### hydrator 放宽的实际语义（初版论证已纠正）
+
+**先纠正一个错误的说法**：初版这里写的是「其它工具的 error 部件天然被跳过」，不成立。hydrator 的判据是「`parseReadFileStateMetadata` 能解析出结构化 metadata + tool 名在白名单里」，**不看工具名是不是 `EditAnchored`**。实测：
+
+```
+error 件 metadata 为空:            restored=0 size=0
+error 件带 Write 读状态:           restored=1 size=1   ← 会恢复
+error 件带 EditAnchored 读状态:    restored=1 size=1   ← 目标行为
+error 件 tool 名不认识:            restored=0 size=0
+```
+
+可达性很窄但不是零：`readFileStateMetadata` 在 `call-runner` 里是同一个 try 作用域的变量（声明 `:363`、赋值 `:420`、catch 里读 `:571`），而 handler 成功之后还有 `validateOutput` / `serializeOutput` / `runPostToolUseHooks` / `emitToolCallResult` 都在这个 try 里。所以 `Write` 写入成功、随后事件发送抛错时，它的读状态会被带进 error 部件并在 resume 时恢复。（`runPostToolUseHooks` 里 `throw` 计数为 0，`serializeOutput` 只有 CUA 保护路径会抛，所以实际可达的只有事件发送失败。）
+
+**决定：保留这个统一行为，不按 tool 名收窄。** 两个理由：
+
+1. 按 tool 名特判会让通用层反向依赖具体工具，而 `executor/errors.ts:18` 的注释就是为反对这件事写的。
+2. 语义上这是对的：`Write` / `Edit` 只在**写入成功之后**才记读状态，所以模型的视图是准的；调用后来因为 serialize / emit 抛错而被报成失败，并不让视图变错。这与本节的规则（读状态与 success 无关）一致。
+
+所以这条的保证要这样说：**凡带合法 read-state metadata 的部件都恢复，无论成功或失败；写不写由 handler 决定。** 它依赖的不变式在 handler 一侧——只有确实读过或写过文件的 handler 才写读状态，而不是靠通用层拦。这条行为已用测试钉住（`带合法读状态的 Write 失败件也会恢复`），不靠碰巧成立。
+
+#### 明确不做
+
+不从失败部件的 `modelContent` 文本里解析回传的锚点。那会把恢复绑死在展示格式上，而 `Read` 的 resume 路径当初就是为了避开这一点才改成结构化持久化的。
+
+#### 验收场景
+
+1. **跨会话闭合**（主场景）：会话 1 Read 后触发 stale 拒绝 → 失败部件带 `readFileState`（含回传的当前锚点）；会话 2 resume → 该文件读状态恢复、served 含那些锚点；用会话 1 错误信息里抄来的锚点重发**直接成功**，不需要重新 Read。
+2. **其它工具的失败件不产生读状态**：Write 失败后 Edit 仍被门禁拒（不能因为失败件放宽了恢复语义而获得「已读」）。
+3. **成功路径不回归**：§4 的恢复照常。
+4. **门禁不回归**：拒绝路径写入的条目仍是 partial view 原值（§6）。
+
+#### 验证方式
+
+单测盖 1/2/3 的机制层（错误结果携带 metadata、hydrator 接受 error 部件且拒绝不认识的 tool）；主场景 1 跑了真实两段会话。
+
+#### 验证结果
+
+```
+会话 1：Read（全文件）→ 外部 sed 改第 2 行 → EditAnchored 用旧锚点 2:BZMC → 拒绝
+        拒绝信息回传当前锚点 2:PHZF；失败部件的 metadata.readFileState.servedAnchors
+        含 PHZF（数据库实测）
+会话 2：--resume 后直接用 2:PHZF 重发，全程未调 Read → APPLIED
+        数据库实测：该会话 EditAnchored 共 2 次，completed 那次 remove_from=2:PHZF
+```
+
+**一个会让人误判的坑（既有设计，不是本轮的缺陷）**：范围读（传了 `limit`）的读状态按设计不跨 resume 恢复（`isHistoricalFullReadWindow` 要求 `limit === undefined`）。模型有习惯性地给 Read 补上 `limit: 2000`，这样即使是 4 行的小文件也会被当成范围读，于是 resume 后连 Read 自己那份都不恢复，看不出 §7.1 修没修。验证这个场景必须让 Read 只传 `file_path`。
+
+上一轮判定「本轮不做」的理由（在一个共享的错误/持久化层上落只做过单测的改动，正是 §6 的成因）仍然成立，所以这一轮把它单独拿出来做，并先补上面那条端到端验证。
 
 ### 阶段 2：实测后再决定主力地位
 

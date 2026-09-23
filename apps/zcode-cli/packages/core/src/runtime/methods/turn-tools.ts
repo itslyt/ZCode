@@ -26,7 +26,11 @@ import {
   projectToolNameForNonEmptyBoundary,
 } from "./tool-part-persistence.js";
 import { persistToolModelStepFinish } from "./turn-step-finish.js";
-import { completedToolPartMetadata, mcpToolPartMetadata } from "./tool-part-metadata.js";
+import {
+  completedToolPartMetadata,
+  mcpToolPartMetadata,
+  readFileStateMetadataField,
+} from "./tool-part-metadata.js";
 import { drainInlineGuideForNextRequest } from "./turn-guide-drain.js";
 import { handleToolCallAnomalyWarnings } from "./turn-tool-warnings.js";
 import { emitNestedModelUsageEvents } from "./turn-nested-model-usage.js";
@@ -340,6 +344,7 @@ export async function executeToolCallsForModelStep(
                   ...(typeof result.modelContent === "string"
                     ? { modelContent: result.modelContent }
                     : {}),
+                  ...readFileStateMetadataField(result),
                 },
                 time: {
                   start: result.startedAt.getTime(),
