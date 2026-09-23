@@ -5365,6 +5365,7 @@ const enUS: Record<string, string> = {
   "chat.attachments.upload.failed": "Upload failed: {message}",
   "chat.attachments.upload.runtimeRestarted":
     "The runtime restarted and invalidated this attachment",
+  "chat.attachments.upload.notReady": "Attachments are still uploading, please wait",
   "chat.composer.draftRuntimeRebuilding": "Rebuilding session, please wait",
   "chat.attachments.upload.remoteMaterializationRequired":
     "This remote attachment could not be staged, so its local path was not sent.",

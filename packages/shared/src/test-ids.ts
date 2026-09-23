@@ -571,6 +571,11 @@ export const TID_V4_EDIT_SUBMIT = "v4-edit-submit";
 export const TID_V4_EDIT_CANCEL = "v4-edit-cancel";
 /** v4 user query 编辑附件删除按钮（动态后缀为 rowId-index） */
 export const TID_V4_EDIT_ATTACHMENT_REMOVE = "v4-edit-attachment-remove";
+/** v4 行内编辑态的附件 chip 行（与主输入框的 composer 行区分） */
+export const TID_V4_EDIT_ATTACHMENT_CHIPS = "v4-edit-attachment-chips";
+/** v4 行内编辑态的附件入口（+ 菜单按钮 / 菜单项） */
+export const TID_V4_EDIT_ATTACHMENT_BUTTON = "v4-edit-attachment-button";
+export const TID_V4_EDIT_ATTACHMENT_MENU_ITEM = "v4-edit-attachment-menu-item";
 export const TID_V4_EDIT_REWIND_WORKSPACE = "v4-edit-rewind-workspace";
 /** v4 edit 文件冲突弹窗 */
 export const TID_V4_EDIT_WORKSPACE_CONFLICT_DIALOG = "v4-edit-workspace-conflict-dialog";

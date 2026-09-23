@@ -12,6 +12,7 @@ import type { WorkflowDraftPosition, WorkflowRunCardSummary } from "@/ToolCallBl
 import type { Theme } from "@/useTheme.js";
 import type { ModelSelectionView } from "@zcode/services";
 import type { ConversationAttachmentReadParams, ConversationTransport } from "@/v4/transport.js";
+import type { AttachmentPutFn } from "@/v4/composer/attachmentUpload.js";
 import type {
   OpenPlanDetailSideTabRequest,
   OpenWorkflowActorSessionSideTabRequest,
@@ -184,6 +185,17 @@ export interface ConversationRowRenderContext {
   readAttachmentRange?: (
     params: Parameters<ConversationTransport["attachmentReadRange"]>[0],
   ) => ReturnType<ConversationTransport["attachmentReadRange"]>;
+  /**
+   * 行内编辑态的附件上传端口。上传态本身仍由 composer 附件 store 按 scope 持有，
+   * 这里只把 transport 的 put 能力透给行级组件（行级组件不自取 store / transport）。
+   */
+  attachmentPut: AttachmentPutFn;
+  /**
+   * runtime 换代通道。行内编辑态附件与 composer 同源，必须能作废重传；
+   * 不接这两条通道时，编辑态上传会永久停在 waitingSession。
+   */
+  onRuntimeRestart: (listener: () => void) => () => void;
+  onRuntimeLifecycle?: (listener: (state: "available" | "unavailable") => void) => () => void;
 }
 
 export interface ConversationFileChangesRequestOptions {

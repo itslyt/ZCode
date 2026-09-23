@@ -123,6 +123,11 @@ interface UseComposerAttachmentsOptions {
    * preventDefault 并各自注入附件，用户看不见的后台草稿被静默塞入画板内容。
    */
   listenAddToChatEvents?: boolean;
+  /**
+   * 是否把本 scopeKey 写到 E2E 全局。默认开；行内编辑态这类非 composer scope 必须关，
+   * 否则编辑框一挂载就会覆盖掉 E2E 用例正在用的 composer scopeKey。
+   */
+  exposeScopeKeyForE2E?: boolean;
 }
 
 async function selectAttachmentLocalPaths(
@@ -199,12 +204,13 @@ export function useComposerAttachments(
     onRuntimeLifecycle,
     disabled = false,
     listenAddToChatEvents = true,
+    exposeScopeKeyForE2E = true,
   } = options;
   const platform = usePlatform();
   const { promptAttachmentTransferService } = useServices();
   const { intl } = useZCodeIntl();
   const scopeKey = buildScopeKey(workspacePath, workspaceIdentity, scopeId);
-  exposeComposerAttachmentScopeKeyForE2E(scopeKey);
+  if (exposeScopeKeyForE2E) exposeComposerAttachmentScopeKeyForE2E(scopeKey);
 
   const targetsRef = useRef(new Map<string, UploadTarget>());
   const uploadQueueRef = useRef<UploadQueueEntry[]>([]);

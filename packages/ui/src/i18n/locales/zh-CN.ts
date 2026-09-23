@@ -5147,6 +5147,7 @@ const zhCN: Record<string, string> = {
   "chat.attachments.upload.ready": "上传完成",
   "chat.attachments.upload.failed": "上传失败：{message}",
   "chat.attachments.upload.runtimeRestarted": "运行时已重启，附件引用失效",
+  "chat.attachments.upload.notReady": "附件还没上传完成，请稍候再提交",
   "chat.composer.draftRuntimeRebuilding": "会话正在重建，请稍候",
   "chat.attachments.upload.remoteMaterializationRequired":
     "远端附件未完成物化，已阻止发送本地路径。",

@@ -2216,6 +2216,10 @@ export function SessionPane({
       applyFileRewind: workspaceFileRewindEnabled ? handleApplyFileRewind : undefined,
       readAttachment: attachmentRead,
       readAttachmentRange: attachmentReadRange,
+      // 行内编辑态的附件上传；只透传 transport 能力，上传态归编辑框自己的 scope。
+      attachmentPut,
+      onRuntimeRestart,
+      onRuntimeLifecycle,
     }),
     [
       workspacePath,
@@ -2271,6 +2275,9 @@ export function SessionPane({
       handleApplyFileRewind,
       attachmentRead,
       attachmentReadRange,
+      attachmentPut,
+      onRuntimeRestart,
+      onRuntimeLifecycle,
     ],
   );
 
