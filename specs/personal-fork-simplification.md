@@ -101,3 +101,55 @@ UI 侧移除 `DesktopTopOverlay` 的 `UpdateStatusButton` 与帮助菜单里的�
   当前提示词里“委派只用于答案很短的广域探查”那条指向的就是 `Explore`。
 - 若要彻底去掉委派：从 `CODING_ONLY_TOOLS` 里移除 `Agent`，省 2 834 字符 schema（27 499 的 ~10%）。
   （`SendMessage`/`TaskOutput`/`TaskStop` 是为后台任务准备的，与 Agent 独立，可保留。）
+
+## 8. 工具面调整：恢复 Glob/Grep，去掉计划模式与 WebSearch
+
+### 8.1 实测基线
+
+从真实请求体（`~/.zcode/cli/rollout/model-io-sess_*.jsonl`）量出：本 fork 默认工具面是 **16 个工具 / 30 928 字符 / 7 742 tokens**（按 `core/context/utils.ts` 的 `estimateTokens`，与界面同源）。
+
+构成为 **描述 4 552 + schema 2 833**，而 schema 里还有 1 450 是参数 `.describe()` 散文——**散文合计占 78%**，真正的结构只占 ~18%。所以降成本要从描述开刀，不是改 schema。
+
+最重的三笔：`AskUserQuestion` 1 229、`EnterPlanMode` 1 082、`ExitPlanMode` 695，合计 **3 006 = 39%**。`EnterPlanMode` 的描述是 **4 011 字符纯散文**（7 条带例子的判断条件），而它的 schema 只 30 token。
+
+对比 DSH（同一个模型跑的另一套 harness）：DSH 是一句话描述（`"Read a UTF-8 text file and return line-numbered content."`），全部工具包描述合计约 3 242 tokens；本 fork 仅 16 个活跃工具就 4 552。**差距在英文散文，不在工具数或 schema 结构。**
+
+### 8.2 恢复 Glob/Grep
+
+现状：这两个工具在 `builtInTools` 与 `CODING_ONLY_TOOLS` 里都有，但**运行时看不到**——`embedded search branch` 把它们拿掉了，搜索改走 Bash 的 `find`/`grep`（带前导注入）。移除发生在三处，全部派生自 `resolveRuntimeEmbeddedSearchEnabled`：
+
+1. `registerBuiltInTools` 跳过注册（`handlers/index.ts`）；
+2. `refreshBranchAwareBuiltInTools` 主动 `unregister`（`embedded-search-branch.ts`）；
+3. `filterEmbeddedSearchRuntimeVisibleTools` 从模型可见列表里滤掉。
+
+所以只需关一个开关：`embedded-search/capability.ts` 的 `ENABLE_EMBEDDED_SEARCH_BRANCH = true` → `false`。三处同时恢复。
+
+**为什么不只改一处**：三处都派生自同一个 resolve，而且 Bash 提示词的引导必须与工具面一致——`embeddedSearchEnabled` 为真时避让清单是 `cat/head/tail/sed/awk/echo`（**不避** `find`/`grep`，即鼓励用 Bash 搜），若一边恢复 Glob/Grep 一边保留这条引导，模型会被同时告知“用 Bash 搜”和“有专用搜索工具”。所以开关与提示词要一起翻。
+
+连带效果（都是同一个设计选择的后果，方向一致）：Bash 避让清单改回含 `find`/`grep`；Bash 前导注入关闭；`Explore` 子代理切到 direct 那套工具面（两套都含 Glob/Grep，差别在别的工具）。
+
+### 8.3 去掉计划模式工具
+
+`EnterPlanMode` + `ExitPlanMode` = **1 777 tokens = 23%** 的工具定义，其中 1 483 是描述散文。用户不用计划模式。
+
+**只下工具，不下模式。** 计划模式不是一个开关，它穿透了运行时：`intent.planEnabled` 持久化、`target.ts`（2 处）、`turn-loop.ts`、`timeline-persistence.ts`、`steering.ts`、`message-persistence.ts`、i18n 与 UI 模式选择器。全部拆掉是另一件事，本轮不做。
+
+后果说清楚：模型**不能自己**进出计划模式了（两个工具就是它唯一的进出手段），但 UI 选择器与 `/plan` 仍能切进去。用户已声明不会选，所以这个组合可接受；真正要彻底去掉模式需要单独立项。
+
+### 8.4 去掉 WebSearch
+
+它不是 ZCode 自己调搜索 API，而是**模型 provider 的原生工具**：`config.ts` 的 `shouldExposeWebSearch` 读 `model.properties.supportsNativeWebSearch`（就是模型配置界面那个“原生联网搜索”复选框）。用户用自己的 provider 且未勾该能力，所以它本来就不在工具面里（实测 `toolNames` 里没有）。
+
+从 `CODING_ONLY_TOOLS` 移除只是让意图显式，行为上无变化；将来换到带原生搜索的 provider 时加回一行即可。
+
+### 8.5 `/plan` 与 `/goal`
+
+- `/plan` 是 App Composer 专用命令，语义就是“切到 Plan mode”，**依赖计划模式存在**。本轮保留模式，所以它仍可用；但模型自己不能进出了。
+- `/goal` 与会话目标相关（`/goal [action]`，同 `--target`），**与计划模式无关**，继续有效。
+
+### 验收
+
+1. 真实请求的 `toolNames` 含 `Glob`/`Grep`，不含 `EnterPlanMode`/`ExitPlanMode`/`WebSearch`。
+2. 工具定义 token 数下降（预期 7 742 → 约 5 965，−23%）。
+3. `Explore` 子代理仍能搜索（它的两套工具面都含 Glob/Grep）。
+4. 不改 `builtInTools` 代码（工具定义保留，随时可恢复）。

@@ -1,7 +1,14 @@
-// 默认进入 provider-visible embedded search branch。Bash 的 find/grep prelude
-// 注入由执行层单独控制，不能因为当前 shell 不支持 function 注入就改变模型看到的
-// tool/prompt surface。
-const ENABLE_EMBEDDED_SEARCH_BRANCH = true;
+// 本 fork 关闭 embedded search branch，改用专用的 Glob/Grep 工具。
+//
+// 上游默认进入这个 branch：搜索走 Bash 的 find/grep（带前导注入），同时把 Glob/Grep 从模型
+// 可见的工具面里拿掉（三处：注册时跳过、refresh 时 unregister、filter 时滤掉，均派生自
+// resolveRuntimeEmbeddedSearchEnabled）。本 fork 要那两个工具，所以翻这个开关——它是三处的
+// 共同源头，改它一处即可同时恢复。
+//
+// 不要只改一处：Bash 的避让清单与工具面必须一致。开关为真时清单是 cat/head/tail/sed/awk/echo
+// （不避 find/grep，等于鼓励用 Bash 搜），若一边恢复 Glob/Grep 一边留着那条引导，模型会同时
+// 被告知“用 Bash 搜”和“有专用搜索工具”。
+const ENABLE_EMBEDDED_SEARCH_BRANCH = false;
 
 interface EmbeddedSearchBranchCapabilityContext {
   bashAvailable: boolean;
