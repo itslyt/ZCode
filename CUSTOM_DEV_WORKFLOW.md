@@ -30,6 +30,11 @@ node scripts/check-workspace-freshness.mjs                  # AGENTS.md 要求�
    - 同一需求的多个文件一起提交；需求之间独立就拆成多个提交，按应审查的顺序排。
    - 提交后在回复里报出 commit hash，让人能直接对账。
    - 不要把手头这轮改动留成未提交状态——后续所有步骤（打包、真机验证）都以「改动已提交」为前提。
+8. **自动打包并交付 dmg（默认动作，不用问）。** §3 全绿且改动已提交后，直接跑 §5 的打包命令，
+   在回复里给出 dmg 的绝对路径和本次改动点，然后**停下等人在外面拖拽安装**。
+   - 理由：安装必然要退出 Preview，而 agent 就跑在 Preview 里——自举循环的最后一步 agent 做不到，
+     只能交给人。所以 agent 的职责到「包已就绪」为止，不该多问一句「要不要打包」。
+   - 例外：本轮明确只调查/只写 spec 没有行为改动，或改动只涉及文档——那时不打包。
 
 ## 3. 静态检查（每次改动必跑，报告真实结果）
 
@@ -131,12 +136,16 @@ ZCODE_ENV=production ZCODE_PREVIEW_IDENTITY=1 pnpm bundle:desktop   # 后台跑�
 # 产物：packages/desktop/dist/ZCode Preview-<version>-mac-arm64.dmg
 ```
 
+- **定位：这是默认自动动作（见 §2 第 8 条）**。§3 全绿 + 改动已提交就直接跑，不用等指令。
 - 出包门槛：§3 全绿 + 改动已提交；提交风格 = 英文 conventional subject + 中文 body（引用 spec 路径），一个功能一个提交。
+- 交付格式：回复里给 dmg **绝对路径** + 本次改动点 + 未验证范围，然后停住等人安装。
 - 本地 unsigned 构建；安装 = 退出 ZCode Preview → dmg 拖入 /Applications 覆盖。
 - **打包不要求退出 ZCode Preview**（实测：运行中打包成功，app 不受影响）。electron-builder 输出到 `packages/desktop/dist/`（`ZCODE_DESKTOP_DIST_DIR` 可改），而运行中的 app 在 `/Applications/ZCode Preview.app`，两者不相干。所以**自举时可以直接在 Preview 的对话里让它打包**。
+- 打包耗时 2–3 分钟，用 `nohup ... > /tmp/zcode-bundle.log 2>&1 &` 后台跑，写日志文件而不是 `| tail`（`| tail` 会吞流式输出，见 §7）。
 - 真正需要退出的只有两种情况：**安装**（覆盖 `/Applications/ZCode Preview.app`），以及你从 `dist/` 直接启动过实例（那时重建会撞上正在跑的 bundle）。自举循环的最后一步（退出 → 拖入 → 重开）必须由人在外面做：agent 跑在 Preview 进程里，没法退出自己再把自己换掉。
 - 检测主进程用 `pgrep -x "ZCode Preview"`；`pgrep -f ".../Contents/MacOS"` 匹配不到（`ps` 里主进程的命令名就是 `ZCode Preview`）。退出用 `osascript -e 'quit app "ZCode Preview"'`。别碰官方 `ZCode.app`。
 - `bundle:desktop` 内部会重建 agent bundle（`prepare:runtime-assets` → `prepare:agent-bundle` → `scripts/build-desktop-agent-cli.mjs`），不需要单独构建。
+- 打包日志里的 `Unsupported engine: wanted 24.14.0 (current v24.21.0)` 是既有 WARN，不是失败。
 - 校验产物别只看「构建成功」：直接 grep 包内文件确认改动进去了——agent bundle 在 `dist/mac-arm64/ZCode Preview.app/Contents/Resources/glm/zcode.cjs`，renderer 在 `Contents/Resources/app.asar`（`npx asar extract` 后可查）。导出的符号名可能被压缩，优先查字符串字面量或先查 `packages/core/dist` 的编译产物。
 - 构建报 electron 缺失：`pnpm install` 或 `node node_modules/electron/install.js`。
 
