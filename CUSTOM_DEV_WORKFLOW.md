@@ -173,6 +173,7 @@ ZCODE_ENV=production ZCODE_PREVIEW_IDENTITY=1 pnpm bundle:desktop   # 后台跑�
 - 改完提示词/描述**无法用单测证明效果**（那是模型行为）；要写进 spec 的评估口径，用 §4.4 的日志看真实分布。
 - `pnpm fmt:check` **会扫未跟踪文件**，仓库里放一个没格式化的草稿也会把门禁卡红；`pnpm exec oxfmt <显式路径>` 有时报 `Expected at least one target file`，直接跑 `pnpm fmt:check` 看全局结果更可靠。
 - 写回归测试时注意两个反向陷阱：旧测试可能把 **bug 行为当成了期望**（改写时要真删旧断言，别写成副本）；断言要走消费者真实使用的选择器/入口，而不是自己挑一个好断言的代理值。
+- **grep 不到 ≠ 不存在：机制可能用别的词汇命名。** 实例：曾 grep `pairing|paired|unanswered|orphan` 无命中就断定「压缩切点无工具配对保护」，实际保护来自 `groupByAssistantStartedRounds` 的分组不变量（只在 assistant 消息处开新组，切点取组边界，工具调用与结果必然同进同出）。**否定性结论不能只搜一个同义词**：要从调用链反查（谁产生/谁消费），或按职责描述搜（如搜「切点」「分组」而不是猜字段名），并在结论里写清搜过什么。
 - 值域错配是跨表/跨层关联的头号隐性 bug：关联前先以 DB 直查确认两侧 id 值域一致（历史教训：行 turnId 与 turn_usage.turn_id 不同值域，见 `specs/session-stats-bar.md`）。
 - 后台任务用 job 管理；`| tail` 会吞流式输出，排查启动问题时改写日志文件再 grep。
 - 清理进程前先用 `ps eww`/`lsof` 确认归属，避免误杀用户实例。
