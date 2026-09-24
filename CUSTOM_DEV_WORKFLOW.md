@@ -161,11 +161,61 @@ ZCODE_ENV=production ZCODE_PREVIEW_IDENTITY=1 pnpm bundle:desktop   # 后台跑�
 - 后台跑 `bundle:desktop` 时，任务通知的「exit code 0」不可信：实测有一次报完成但日志停在 electron 下载、dmg mtime 未变。**必须用 dmg 的 mtime + 包内 grep 双重确认**，或直接前台跑。
 - 构建报 electron 缺失：`pnpm install` 或 `node node_modules/electron/install.js`。
 
-## 6. 上游同步（基本不做）
+## 6. 上游同步（按需，用 merge 不用 rebase）
 
-本 fork 走自研路线，官方 ZCode 基本不更新，所以**不把同步上游当常规步骤**，不要主动提或定期做。
+本 fork 走自研路线，官方 ZCode 更新不频繁，所以**不把同步上游当常规步骤**，不要主动提或定期做。
 
-真的需要时（官方突然发了值得要的改动）：`git fetch upstream` → 在 `custom` 上 `rebase upstream/main` → 冲突集中在自维护改动文件（以各 spec 组件地图定位）→ 重跑 §3 与 §5。注意自维护改动越多，rebase 越痛——这也是不走这条路的一个理由。
+真的需要时（官方发了值得要的改动，例如 3.14.3）：
+
+```bash
+git fetch upstream
+git merge --no-commit upstream/main     # 或指定 commit
+git diff --name-only --diff-filter=U    # 冲突清单
+```
+
+### 6.1 固定用 merge，不用 rebase
+
+本文档早期写的是 `rebase upstream/main`，实测不划算。以 3.14.3（`29628c9`）为例：
+
+|              | merge            | rebase                               |
+| ------------ | ---------------- | ------------------------------------ |
+| 冲突轮数     | 3 个文件，解一次 | 87 个提交里 9 个触碰冲突文件，反复解 |
+| 自维护提交   | 哈希不变         | 全部重写，需要 force-push            |
+| 每轮验证成本 | 一次             | 每解一轮都要重跑 §3                  |
+
+`custom` 已有 87 个提交，rebase 只会越往后越痛，所以固定 merge。
+
+### 6.2 动手前先估冲突量，别被总行数吓到
+
+```bash
+base=$(git merge-base custom upstream/main)
+git diff --shortstat $base upstream/main                  # 总改动量（3.14.3 是 +30342/-1768）
+git diff --name-status $base upstream/main | awk '{print $1}' | sort | uniq -c
+# 只有「双方都改」的文件才会冲突：
+comm -12 <(git diff --name-only $base custom | sort) \
+         <(git diff --name-only $base upstream/main | sort)
+```
+
+`A`（新增）文件**永远不冲突**。3.14.3 改了 30342 行，但新增占 87 个文件，双方都改的只有 18 个，真正冲突 3 个——和「3 万行」完全不是一个量级。
+
+### 6.3 合并后必须做
+
+1. `pnpm install`：上游可能加依赖（3.14.3 加了 `@larksuiteoapi/node-sdk`）。
+2. **重建 `apps/zcode-cli` 的包再逐包 typecheck**（见 §7 对应坑位；该目录没有 turbo，要按依赖顺序手工构建）。
+3. 重跑 §3（根 typecheck + 逐包 typecheck + lint）与 §5（打包）。
+4. **`pnpm fmt:check` 会在上游自带的文件上报红**（3.14.3 带进来 32 个）：上游不保证自己的文件符合本仓库 `.oxfmtrc.json`。**不要顺手 `pnpm fmt` 全仓格式化**——那会让上游文件偏离上游，下次合并全是冲突。只格式化自维护文件；报红时先用 `comm -23 <(fmt 报红清单) <(上游改动清单)` 分出哪些是自己的。
+
+### 6.4 证明「没碰到自维护改动」的硬指标
+
+合并后工作区改动文件集必须与上游自己改的文件集**完全相等**：
+
+```bash
+comm -23 <(git diff --name-only <合并前HEAD> | sort) \
+         <(git diff --name-only <base> upstream/main | sort)
+# 输出为空 = 自维护文件零污染
+```
+
+3.14.3 实测两侧都是 283 个文件，`comm -23` 为空。
 
 ## 7. 通用坑位清单
 
@@ -182,6 +232,9 @@ ZCODE_ENV=production ZCODE_PREVIEW_IDENTITY=1 pnpm bundle:desktop   # 后台跑�
 - 清理进程前先用 `ps eww`/`lsof` 确认归属，避免误杀用户实例。
 - Web 验证环境分裂风险：`ZCODE_DATA_BASE_DIR` 只约束 server 进程（索引/任务库），其拉起的 host 可能仍写**原始**数据目录（会话库/索引另一半），删除等写路径验证后必须直查原始 `~/.zcode/v2/tasks-index.sqlite` 与 `~/.zcode/cli/db/db.sqlite` 取证，发现幽灵条目（索引有行、库无数据）用 tombstone（deleted=1）清理；写路径验证优先桌面 dev 或确认 host 环境继承后再做。
 - 桌面 dev 同样会分裂：Host 继承 `ZCODE_DATA_BASE_DIR`（索引写副本），但它拉起的 **Agent 进程不继承**，会话库落回 `~/.zcode/cli/db/db.sqlite`。因此涉及会话行的写路径（删除、移动、改名）在桌面 dev 里验证时会直接改真实数据；验证前先确认会话库落在副本，或验证后立刻把真实库改回原值（`session.project_id/workspace_id/directory`），并直查两处 DB 取证。
+- **`cmd | tail; echo $?` 报的是 `tail` 的退出码**，会把失败报成成功；要取 `${PIPESTATUS[0]}`。而后台 job 的「exit code」是整条脚本最后一条命令的，用 `echo` 结尾必然 0——判成功必须看输出里的真实退出码，别信 job 状态。实测：`pnpm --dir apps/zcode-cli build` 因 `turbo: command not found` 失败，却被 job 报成 exit 0。
+- **`apps/zcode-cli` 内没有 turbo**：该目录的 `build`/`typecheck`/`lint` 脚本是 `turbo run ...`，直接跑必然 `sh: turbo: command not found`（根 `node_modules/.bin/turbo` 不在它的 PATH 上）。要按依赖顺序逐包跑：`shared-types → contracts → i18n → tui → dynamic-workflow → dynamic-workflow-runtime → adapters → core → bootstrap`。
+- **上游同步后必须先重建 `apps/zcode-cli` 再 typecheck**：`dist/` 被 gitignore 且是包的解析入口（`package.json` 的 `main`/`types` 指向 `dist/`），不重建就会看到成片「`@zcode/contracts` has no exported member」——那是 dist 旧，不是代码错。先用源码确认符号存在（`grep -rn SYMBOL apps/zcode-cli/packages/<pkg>/src/`），再看 `dist/` 缺失，即可定性。
 
 ## 8. 外部能力清单
 
