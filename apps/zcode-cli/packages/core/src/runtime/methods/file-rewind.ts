@@ -284,6 +284,8 @@ async function buildWorkspaceFileRewindPlan(
   this: AgentRuntimeInternal,
   options: {
     abortSignal?: AbortSignal;
+    /** 从 targetMessageId 起级联到活跃分支末尾；与 targetMessageIds 互斥。 */
+    cascade?: boolean;
     targetCheckpointId?: string;
     targetMessageId?: MessageId;
     targetMessageIds?: MessageId[];
