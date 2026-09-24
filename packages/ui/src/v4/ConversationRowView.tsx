@@ -883,6 +883,32 @@ const UserInputEditBox = memo(function UserInputEditBox({
   // 操作，必须让用户看到后果后再选模式（旧按钮点一下就直接发出去了）。
   const [confirmOpen, setConfirmOpen] = useState(false);
   const inputApiRef = useRef<LexicalChatInputHandle | null>(null);
+  // 编辑框整体（含确认面板）的边界。点击边界之外即等同于点 X 取消：
+  // 不发送、不产生任何回滚，草稿丢弃。
+  const editBoxRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (submitting) return;
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (editBoxRef.current?.contains(target)) return;
+      // 编辑器会向 body 挂 Radix popper（附件菜单、/ 与 # 面板）以及 modal dialog
+      // （文件冲突弹窗）。这些虽然在编辑框 DOM 之外，但属于本次编辑的交互，
+      // 点它们不能当作「点到外面」取消。
+      if (
+        target instanceof Element &&
+        target.closest(
+          '[data-radix-popper-content-wrapper],[data-slot="dialog-content"],[data-slot="dialog-overlay"],[role="dialog"]',
+        )
+      ) {
+        return;
+      }
+      onClose();
+    }
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    return () => document.removeEventListener("pointerdown", handlePointerDown, true);
+  }, [submitting, onClose]);
 
   /**
    * 编辑态新增附件的上传控制器，scope 独立于主输入框（`edit:<rowId>`）。
@@ -1093,6 +1119,8 @@ const UserInputEditBox = memo(function UserInputEditBox({
   );
   return (
     <RowShell rowId={row.rowId} className="flex flex-col items-end">
+      {/* 外层只做点击边界：包含编辑框与确认面板，点这之外即取消。 */}
+      <div ref={editBoxRef} className="flex w-full max-w-xl flex-col">
       <ChatPromptEditor
         // 编辑框也接受 OS 文件拖入：编辑器在 dragover 阶段就会点亮投放态，
         // 不接 drop 的话用户会看到高亮但松手无反应。
@@ -1216,21 +1244,25 @@ const UserInputEditBox = memo(function UserInputEditBox({
         inputTestId={testId(TID_V4_EDIT_INPUT, String(row.rowId))}
         submitTestId={testId(TID_V4_EDIT_SUBMIT, String(row.rowId))}
         cancelTestId={testId(TID_V4_EDIT_CANCEL, String(row.rowId))}
-        className="w-full max-w-xl"
+        className="w-full"
         shellClassName="min-h-32"
         onChange={setDraft}
         onSubmit={() => {
-          // 面板未开：只开面板，不发送。面板已开：Enter 等价于「仅修改对话」——
+          // 必须返回 false：ChatPromptEditor 的 onSubmit 契约是「返回 false 表示调用方
+          // 接管，编辑器不要清空草稿」（LexicalChatInput 的 shouldResetLexicalEditorAfterSubmit
+          // 只在 result !== false 时重置）。这里发送要等确认面板，草稿还没交出去，
+          // 返回 undefined 会让回车后编辑框直接变空。
+          //
+          // 面板未开：只开面板，不发送。面板已开：回车等价于「仅修改对话」——
           // 破坏性的「对话和代码一起回退」只能显式点按钮。
-          if (confirmOpen) {
-            void handleSubmitEdit(draft, "preserve");
-            return;
-          }
-          setConfirmOpen(true);
+          if (confirmOpen) void handleSubmitEdit(draft, "preserve");
+          else setConfirmOpen(true);
+          return false;
         }}
         onCancel={onClose}
       />
       {confirmPanel}
+      </div>
       {/* 无 native picker 的平台（手机 Web）走隐藏 file input 回退，与主输入框同一条。 */}
       <input
         ref={attachmentsApi.attachmentInputRef}
