@@ -157,6 +157,8 @@ ZCODE_ENV=production ZCODE_PREVIEW_IDENTITY=1 pnpm bundle:desktop   # 后台跑�
 - `bundle:desktop` 内部会重建 agent bundle（`prepare:runtime-assets` → `prepare:agent-bundle` → `scripts/build-desktop-agent-cli.mjs`），不需要单独构建。
 - 打包日志里的 `Unsupported engine: wanted 24.14.0 (current v24.21.0)` 是既有 WARN，不是失败。
 - 校验产物别只看「构建成功」：直接 grep 包内文件确认改动进去了——agent bundle 在 `dist/mac-arm64/ZCode Preview.app/Contents/Resources/glm/zcode.cjs`，renderer 在 `Contents/Resources/app.asar`（`npx asar extract` 后可查）。导出的符号名可能被压缩，优先查字符串字面量或先查 `packages/core/dist` 的编译产物。
+- **`pnpm typecheck` 不覆盖 `apps/zcode-cli`**（只跑 `packages/*` 的 tsc -b）。改 agent/CLI 侧代码后必须单独跑 `node scripts/build-desktop-agent-cli.mjs`（内含 `tsc`）才能暴露类型错误；否则会一路漏到 `bundle:desktop` 才报。同理 `pnpm architecture:check --changed` 也只覆盖 `packages/`。
+- 后台跑 `bundle:desktop` 时，任务通知的「exit code 0」不可信：实测有一次报完成但日志停在 electron 下载、dmg mtime 未变。**必须用 dmg 的 mtime + 包内 grep 双重确认**，或直接前台跑。
 - 构建报 electron 缺失：`pnpm install` 或 `node node_modules/electron/install.js`。
 
 ## 6. 上游同步（基本不做）
