@@ -141,6 +141,7 @@ ZCODE_ENV=production ZCODE_PREVIEW_IDENTITY=1 pnpm bundle:desktop   # 后台跑�
 - 交付格式：回复里给 dmg **绝对路径** + 本次改动点 + 未验证范围，然后停住等人安装。
 - 本地 unsigned 构建；安装 = 退出 ZCode Preview → dmg 拖入 /Applications 覆盖。
 - **打包不要求退出 ZCode Preview**（实测：运行中打包成功，app 不受影响）。electron-builder 输出到 `packages/desktop/dist/`（`ZCODE_DESKTOP_DIST_DIR` 可改），而运行中的 app 在 `/Applications/ZCode Preview.app`，两者不相干。所以**自举时可以直接在 Preview 的对话里让它打包**。
+- **用户日常用的是安装版 `/Applications/ZCode Preview.app`；`packages/desktop/dist/` 只是构建中间产物，永远不是「在用的 app」**。因此改动提交后**直接打包，不要问「要不要打包」**；打包不影响运行中实例、也不影响已安装实例。唯一需要退出 app 的动作是**安装**（dmg 覆盖 `/Applications`）。
 - 打包耗时 2–3 分钟，用 `nohup ... > /tmp/zcode-bundle.log 2>&1 &` 后台跑，写日志文件而不是 `| tail`（`| tail` 会吞流式输出，见 §7）。
 - 真正需要退出的只有两种情况：**安装**（覆盖 `/Applications/ZCode Preview.app`），以及你从 `dist/` 直接启动过实例（那时重建会撞上正在跑的 bundle）。自举循环的最后一步（退出 → 拖入 → 重开）必须由人在外面做：agent 跑在 Preview 进程里，没法退出自己再把自己换掉。
 - 检测主进程用 `pgrep -x "ZCode Preview"`（launchd 上下文实测可命中 5306；在 agent 的沙箱 shell 里可能看不到，别据此判 app 没跑，用 `ps -eo pid,comm | awk '$2=="ZCode" && $3=="Preview"'` 兜底）。退出用 `osascript -e 'quit app "ZCode Preview"'`。别碰官方 `ZCode.app`。
