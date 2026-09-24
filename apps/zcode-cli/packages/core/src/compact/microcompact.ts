@@ -72,6 +72,8 @@ export interface LocalMicrocompactResult<T extends LocalMicrocompactMessage> {
 interface ToolResultCandidate {
   index: number;
   toolCallId: string;
+  /** 清除后留下的结构化重取指针，让模型能按 file:line 精确重读而非盲目再读一遍。 */
+  pointer?: string;
 }
 
 export function buildDefaultMicrocompactThreshold(autoCompactThreshold: number): number {
@@ -138,7 +140,7 @@ export function maybeLocalMicrocompactMessages<T extends LocalMicrocompactMessag
     if (!message) continue;
     messages[candidate.index] = {
       ...message,
-      content: buildClearedToolResultContent(),
+      content: buildClearedToolResultContent(candidate.pointer),
     };
   }
 
@@ -203,6 +205,8 @@ function collectCompactableToolResultGroups<T extends LocalMicrocompactMessage>(
   );
   const clearErrorResults = config.clearErrorResults === true;
   const groups: ToolResultCandidate[][] = [];
+  // assistant 消息上的 toolCalls.input 是结构化参数，清除时据此生成重取指针。
+  const inputsByToolCallId = new Map<string, unknown>();
   let currentGroup: ToolResultCandidate[] | undefined;
 
   const flushCurrentGroup = (): void => {
@@ -214,6 +218,9 @@ function collectCompactableToolResultGroups<T extends LocalMicrocompactMessage>(
 
   messages.forEach((message, index) => {
     if (message.role === "assistant" && message.toolCalls && message.toolCalls.length > 0) {
+      for (const call of message.toolCalls) {
+        inputsByToolCallId.set(call.id, call.input);
+      }
       flushCurrentGroup();
       currentGroup = [];
       return;
@@ -225,25 +232,66 @@ function collectCompactableToolResultGroups<T extends LocalMicrocompactMessage>(
     if (message.isError && !clearErrorResults) return;
     if (isMicrocompactClearedToolResultContent(message.content)) return;
     if (hasMediaToolResultContent(message.content)) return;
+    const pointer = buildRefetchPointer(
+      message.toolName,
+      inputsByToolCallId.get(message.toolCallId),
+    );
 
     if (!currentGroup) {
-      groups.push([{ index, toolCallId: message.toolCallId }]);
+      groups.push([{ index, toolCallId: message.toolCallId, pointer }]);
       return;
     }
 
-    currentGroup.push({ index, toolCallId: message.toolCallId });
+    currentGroup.push({ index, toolCallId: message.toolCallId, pointer });
   });
 
   flushCurrentGroup();
   return groups;
 }
 
-function buildClearedToolResultContent(): ModelMessageContent {
-  return MICROCOMPACT_CLEARED_TOOL_RESULT_MESSAGE;
+function buildClearedToolResultContent(pointer?: string): ModelMessageContent {
+  if (!pointer) return MICROCOMPACT_CLEARED_TOOL_RESULT_MESSAGE;
+  return `${MICROCOMPACT_CLEARED_TOOL_RESULT_MESSAGE}\n${pointer}`;
 }
 
 function isMicrocompactClearedToolResultContent(content: ModelMessageContent): boolean {
-  return modelMessageContentToText(content) === MICROCOMPACT_CLEARED_TOOL_RESULT_MESSAGE;
+  // 清除后的内容现在可能带重取指针，用前缀判断保证幂等（不会二次清除）。
+  return modelMessageContentToText(content).startsWith(MICROCOMPACT_CLEARED_TOOL_RESULT_PREFIX);
+}
+
+/** 只读工具的结构化参数可以还原成一条精确的重取指令；Bash 等无结构化参数则不给指针。 */
+function buildRefetchPointer(toolName: string, input: unknown): string | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const args = input as Record<string, unknown>;
+  const str = (value: unknown): string | undefined =>
+    typeof value === "string" && value.length > 0 ? value : undefined;
+  const num = (value: unknown): number | undefined =>
+    typeof value === "number" && Number.isFinite(value) ? value : undefined;
+
+  if (toolName === "Read") {
+    const filePath = str(args.file_path);
+    if (!filePath) return undefined;
+    const offset = num(args.offset);
+    const limit = num(args.limit);
+    const range =
+      offset !== undefined || limit !== undefined
+        ? ` offset=${offset ?? 1} limit=${limit ?? "-"}`
+        : "";
+    return `Re-fetch with: Read(file_path="${filePath}"${range})`;
+  }
+  if (toolName === "Grep") {
+    const pattern = str(args.pattern);
+    if (!pattern) return undefined;
+    const path = str(args.path);
+    return `Re-fetch with: Grep(pattern="${pattern}"${path ? `, path="${path}"` : ""})`;
+  }
+  if (toolName === "Glob") {
+    const pattern = str(args.pattern);
+    if (!pattern) return undefined;
+    const path = str(args.path);
+    return `Re-fetch with: Glob(pattern="${pattern}"${path ? `, path="${path}"` : ""})`;
+  }
+  return undefined;
 }
 
 function hasMediaToolResultContent(content: ModelMessageContent): boolean {

@@ -260,3 +260,36 @@ Takumi 的 90% 论证指出：在该路由上比例**同时约束输出预算**�
 - P0 缓存前缀改造（§5 自述前提未验证；本轮未动请求组装）
 - ③ 摘要输入瘦身、④ 预计算压缩、⑤ blocking 检测：均未做，理由见 §3.7.2 与 §3.7.4
 - microcompact 落盘 / resume 重放：**核查后确认不是缺陷** —— `microcompactIfNeeded` 在 `turn-loop.ts` 每个 model step 的请求组装前重新施加（先于 `autoCompactIfNeeded`），清除是每轮重算的投影，不依赖持久化
+
+## 8. microcompact 清除留重取指针（2026-09-24 第二轮）
+
+### 8.1 问题（本会话 rollout 实测）
+
+按 `call_id` 去重后统计本会话工具调用：Bash 486、Read 217、Edit 16、Grep 13。
+其中 **32 组「完全相同的 (file, offset, limit) 重读」，每一次重读发生时上一次结果都已被 microcompact 清除（32/32）**。
+清除后只留裸占位符 `[Old tool result content cleared]`，模型无法据此精确重取，只能盲目重读；
+而 Read 的 `readFileState` 去重缓存在 autocompact 时被清空（`compact-active.ts`）、resume 时不恢复区间读，
+于是「清除 → 缓存答不上 → 真重读 → 再触发清除」形成循环。
+
+### 8.2 改动
+
+`compact/microcompact.ts`：清除时从对应 assistant 消息的 `toolCalls.input` 还原一条结构化重取指针，
+追加在清除标记之后：
+
+- `Read` → `Re-fetch with: Read(file_path="..." offset=... limit=...)`
+- `Grep` → `Re-fetch with: Grep(pattern="...", path="...")`
+- `Glob` → `Re-fetch with: Glob(pattern="...", path="...")`
+- 其余工具（含 Bash，参数无结构化语义）→ 维持裸标记，不给指针。
+
+`isMicrocompactClearedToolResultContent` 由全等改为**前缀**判断，保证带指针内容不被二次清除（幂等）。
+
+### 8.3 不做「整体关掉 microcompact」的理由
+
+关掉能止住重读，但 700+ 条工具输出全留在上下文会更快触发 autocompact；
+实测一次 autocompact 请求约 48 万 input tokens，比省下的重读贵一个数量级。留指针是更精准的止损。
+
+### 8.4 验证
+
+`test/microcompact-refetch-pointer.test.ts` 4 条：Read 指针含 file/offset/limit、Bash 不给指针、
+幂等不二次清除、Grep 指针含 pattern/path。连同存量 microcompact/阈值/配对测试共 16 条全绿；
+typecheck / lint（74 警告=基线）/ architecture 0 违规。
