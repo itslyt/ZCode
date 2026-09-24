@@ -81,10 +81,27 @@ export function getAutoCompactOutputReserveTokens(config: AutoCompactPolicyConfi
   );
 }
 
+export function getAutoCompactThresholdPercent(config: AutoCompactPolicyConfig = {}): number {
+  const override = config.thresholdPercentOverride;
+  // 显式 0 / 非法值都退回默认，否则 0 会被夹到 1%，阈值退化成近乎每轮都压缩。
+  if (override === undefined || !Number.isFinite(override) || override <= 0) {
+    return DEFAULT_AUTOCOMPACT_THRESHOLD_PERCENT;
+  }
+  // 超过 100 没有意义，夹到 100 即等价于按 buffer 计算。
+  return Math.min(100, Math.floor(override));
+}
+
 export function getAutoCompactThreshold(config: AutoCompactPolicyConfig = {}): number {
   const effectiveContextWindow = getEffectiveContextWindowSize(config);
   const buffer = positiveInt(config.bufferTokens) ?? AUTOCOMPACT_BUFFER_TOKENS;
-  return Math.max(0, effectiveContextWindow - buffer);
+  const byBuffer = Math.max(0, effectiveContextWindow - buffer);
+  const percent = getAutoCompactThresholdPercent(config);
+  if (percent >= DEFAULT_AUTOCOMPACT_THRESHOLD_PERCENT) return byBuffer;
+  // 分母是已扣掉 output reserve 的有效窗口。声明窗口大于网关真实输入上限时，
+  // 只按 W-buffer 算出的阈值可能高于上限，压缩永远不触发、请求先被 provider 拒；
+  // 百分比上限让阈值提前落在安全区内。
+  const byPercent = Math.floor((effectiveContextWindow * percent) / 100);
+  return Math.max(0, Math.min(byBuffer, byPercent));
 }
 
 export function shouldAutoCompact(input: {
@@ -98,7 +115,7 @@ export function shouldAutoCompact(input: {
   const effectiveContextWindow = getEffectiveContextWindowSize(config);
   const outputReserveTokens = Math.min(getAutoCompactOutputReserveTokens(config), contextWindow);
   const threshold = getAutoCompactThreshold(config);
-  const thresholdPercent = DEFAULT_AUTOCOMPACT_THRESHOLD_PERCENT;
+  const thresholdPercent = getAutoCompactThresholdPercent(config);
   const estimatedTokenCount = estimateMessageTokens(input.messages);
   const tokenCount = input.tokenOverride?.tokenCount ?? estimatedTokenCount;
   const tokenSource = input.tokenOverride?.source ?? "estimate";

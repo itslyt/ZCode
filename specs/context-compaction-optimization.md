@@ -217,3 +217,46 @@ Takumi 的 90% 论证指出：在该路由上比例**同时约束输出预算**�
 4. 用一段时间后按 §3.4 取证，再决定 P2。
 
 每步一个独立提交（见 `CUSTOM_DEV_WORKFLOW.md` §2 第 7 条）。
+
+## 7. 本轮实测校验（2026-09-24）
+
+对 §3.7 的每项结论逐条回源码验证，结果如下。**§3.7.2 的 ①② 判断需要修正**。
+
+### 7.1 ① 工具配对保护：结论**不成立**（不需要改）
+
+切点不可能拆散 `tool_use`/`tool_result`。依据：
+
+- `compact/rounds.ts:1-35` `groupByAssistantStartedRounds` **只在 assistant 消息处开新组**（`role === "assistant" && current.length > 0`）。
+- `runtime/helpers/compact-selection.ts:223` 切点取的是这个分组的**组边界**（`groups: groupRuntimeEntriesByCompactRound(bodyEntries)`），保留的尾部也是整组保留。
+- 因此一条 assistant 的工具调用与其后续 tool_result 必然同组、同进同出。
+
+§3.7.2 说「grep 不到 pairing 就说明无保护」是**推论错误**：保护来自分组不变量，不来自显式的 pairing 字段。已补回归测试锁住该不变量（`test/compact-round-pairing.test.ts`）。
+
+### 7.2 ② transcriptPath：结论**不可直接接线**
+
+`transcriptPath` 确属未接线（`compact/prompt.ts` 有渲染分支，`runtime/methods/compact-active.ts` 只传 `{ suppressFollowup: true }`），但**前提不成立**：
+
+- 全仓库唯一的 transcript 写入点是 `hooks/configured-runner-input.ts`，写在 hook 的临时目录里，**不存在会话级的完整转写文件**。
+- 即 prompt 里那句「read the full transcript at: <path>」目前**无路径可指**。
+
+所以它不是「一句话成本」，而是需要先设计会话转写落盘（新子系统）。本轮不做，避免为了接一句提示语而引入一个未设计的存储层。
+
+### 7.3 ③ 阈值：确认是真缺陷，已修（本轮唯一代码改动）
+
+`thresholdPercentOverride` 在 `compact/policy.ts` 里**声明但从未被读取**（`getAutoCompactThreshold` 恒等于 `effectiveWindow - buffer`，`thresholdPercent` 只用于日志）。
+
+改动：新增 `getAutoCompactThresholdPercent()` 并接入阈值计算，取 `min(effectiveWindow - buffer, floor(effectiveWindow × percent / 100))`；未配置时 `percent = 100`，**默认行为与改动前逐位相同**。显式 0 / 非法值退回默认（否则会被夹到 1%，退化成近乎每轮都压缩）。
+
+单测 `test/autocompact-threshold-percent.test.ts` 4 条全绿，其中一条正是靠「0 应退回默认」抓到了我第一版的 clamp 缺陷。
+
+### 7.4 关于 §3.6 论据的一处更正
+
+§3.6 用 `max_completion_tokens must be in [1, 393216], got: 445227` 论证「阈值高于网关输入上限导致压缩不触发」。回查日志，该 400 的**真实字段是输出预算**（`max_completion_tokens`），不是输入 token 数，且失败发生在 `runtime/methods/model-token-limits.ts` 的输出预算解析路径，与压缩阈值**无因果关系**。阈值偏高的推论方向仍成立，但引用这条报错作论据不准确。
+
+该 400 本身是个**独立的真缺陷**（`turn.failed`，`retryable:false`，连续 11 次尝试，整轮直接失败），但属于 token 预算子系统，不在本次压缩改造范围内，仅记录待后续单独处理。
+
+### 7.5 未做项
+
+- P0 缓存前缀改造（§5 自述前提未验证；本轮未动请求组装）
+- ③ 摘要输入瘦身、④ 预计算压缩、⑤ blocking 检测：均未做，理由见 §3.7.2 与 §3.7.4
+- microcompact 落盘 / resume 重放：**核查后确认不是缺陷** —— `microcompactIfNeeded` 在 `turn-loop.ts` 每个 model step 的请求组装前重新施加（先于 `autoCompactIfNeeded`），清除是每轮重算的投影，不依赖持久化
