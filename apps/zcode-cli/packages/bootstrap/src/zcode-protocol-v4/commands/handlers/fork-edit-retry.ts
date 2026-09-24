@@ -65,13 +65,13 @@ class V4ForkTargetGuardError extends Error {
   }
 }
 
-/** latestQueryEditOnly：旧 row / 非 realUser row / 无投影均直接拒绝，不 stop 当前 turn。 */
-class V4EditTargetNotLatestError extends Error {
-  readonly reasonCode = "guard.latestQueryEditOnly";
-
-  constructor(targetRowId: number) {
-    super(`editUserQuery targetRowId ${targetRowId} 不是最后一轮 real user query`);
-    this.name = "V4EditTargetNotLatestError";
+class V4EditTargetUnavailableError extends Error {
+  constructor(
+    readonly reasonCode: string,
+    targetRowId: number,
+  ) {
+    super(`editUserQuery targetRowId ${targetRowId} 被稳定目标解析器拒绝: ${reasonCode}`);
+    this.name = "V4EditTargetUnavailableError";
   }
 }
 
@@ -128,8 +128,13 @@ async function editUserQuery(
     payload.target,
     "editUserQuery",
   );
+  // 编辑门已改由投影下发的 row.actions.canEdit 表达（历史行同样可编辑）；
+  // resolveRowActionTarget 返回 !ok 即该行当前不可编辑，无需再做 latest-only 判定。
   if (!resolution?.ok || !resolution.editTarget) {
-    throw new V4EditTargetNotLatestError(payload.target.rowId);
+    throw new V4EditTargetUnavailableError(
+      resolution?.ok ? "guard.actionUnavailable" : (resolution?.reasonCode ?? "proto.staleTarget"),
+      payload.target.rowId,
+    );
   }
   const editTarget = resolution.editTarget;
   const attachmentRefs = payload.attachments ?? stableAttachmentRefs(editTarget);
@@ -148,12 +153,12 @@ async function editUserQuery(
   }
   let conversationRewindCommitted = false;
   if ((payload.workspaceMode ?? "preserve") === "rewind") {
-    const turnMessageIds = resolution.messageIds ??
-      host.getMessageIdsForTurnRow?.(record.app.sessionId, resolution.row.rowId) ?? [
-        editTarget.transcriptMessageId,
-      ];
+    // 文件回滚必须是 cascade：编辑第 N 轮意味着对话截断到第 N 轮，若文件只回滚
+    // 第 N 轮，第 N+1.. 轮改的文件会与截断后的对话矛盾，且后续轮 checkpoint 会基于
+    // 已回滚内容再次回滚。目标集由 runtime 按活跃分支展开，不在此处自拼 messageId。
     const fileOptions = {
-      targetMessageIds: turnMessageIds as MessageId[],
+      cascade: true,
+      targetMessageId: editTarget.transcriptMessageId as MessageId,
       targetTurnId: resolution.row.turnId as TurnId,
       traceContext: record.traceContext,
     };

@@ -6,7 +6,7 @@ import {
   ArrowRightLeftIcon,
   CheckIcon,
   CopyIcon,
-  FileClockIcon,
+  CircleAlertIcon,
   FileIcon,
   GitBranchIcon,
   GoalIcon,
@@ -24,7 +24,10 @@ import {
   TID_V4_EDIT_CANCEL,
   TID_V4_EDIT_INPUT,
   TID_V4_EDIT_SUBMIT,
-  TID_V4_EDIT_REWIND_WORKSPACE,
+  TID_V4_EDIT_CONFIRM_CLOSE,
+  TID_V4_EDIT_CONFIRM_CONVERSATION_ONLY,
+  TID_V4_EDIT_CONFIRM_PANEL,
+  TID_V4_EDIT_CONFIRM_WITH_FILES,
   TID_V4_FORK,
   TID_V4_ROW,
   TID_V4_ROW_ATTACHMENTS,
@@ -73,7 +76,6 @@ import {
 } from "@/components/ai-elements/reasoning.js";
 import { cn } from "@/components/lib/utils.js";
 import { Button } from "@/components/ui/button.js";
-import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { WorkflowToolSummary } from "@/v4/WorkflowToolSummary.js";
 import { TurnStatsCapsules } from "@/v4/TurnStatsCapsules.js";
 import { readWorkflowName } from "@/ToolCallBlocks/renderers/createWorkflowInput.js";
@@ -877,6 +879,9 @@ const UserInputEditBox = memo(function UserInputEditBox({
   const [conflictPreview, setConflictPreview] =
     useState<V4ConversationFileRewindPreviewResult | null>(null);
   const [conflictOpen, setConflictOpen] = useState(false);
+  // 发送前的确认面板。发送按钮/回车只开面板，不直接 dispatch：与文件一起回退是破坏性
+  // 操作，必须让用户看到后果后再选模式（旧按钮点一下就直接发出去了）。
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const inputApiRef = useRef<LexicalChatInputHandle | null>(null);
 
   /**
@@ -916,15 +921,71 @@ const UserInputEditBox = memo(function UserInputEditBox({
   const rewindWorkspaceLabel = intl.formatMessage({
     id: "chat.edit.resetConversationAndFiles",
   });
-  const rewindWorkspaceTooltipTitle = intl.formatMessage({
-    id: "chat.edit.resetConversationAndFiles.tooltip",
-  });
   const rewindWorkspaceTooltipDescription =
     editWorkspaceRewindAvailability?.reason === "available"
       ? undefined
       : intl.formatMessage({
           id: `chat.edit.resetConversationAndFiles.${editWorkspaceRewindAvailability?.reason ?? "noFiles"}`,
         });
+  // 确认面板只在目标轮确实有可安全回滚的文件改动时，才提供「对话和代码一起回退」。
+  const canRewindWorkspaceWithFiles = editWorkspaceRewindAvailability?.enabled === true;
+  const confirmPanel = confirmOpen ? (
+    <div
+      className="flex w-full flex-col gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3"
+      data-testid={testId(TID_V4_EDIT_CONFIRM_PANEL, String(row.rowId))}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2 text-ui-base font-medium text-[var(--color-foreground)]">
+          <CircleAlertIcon className="size-4 shrink-0" />
+          <span>{intl.formatMessage({ id: "chat.edit.confirm.title" })}</span>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label={cancelLabel}
+          data-testid={testId(TID_V4_EDIT_CONFIRM_CLOSE, String(row.rowId))}
+          onClick={() => setConfirmOpen(false)}
+        >
+          <XIcon className="size-4" />
+        </Button>
+      </div>
+      <p className="text-ui-base text-[var(--color-foreground-subtle)]">
+        {intl.formatMessage({ id: "chat.edit.confirm.description" })}
+      </p>
+      <div className="flex items-center justify-end gap-2">
+        {canRewindWorkspaceWithFiles ? (
+          <Button
+            type="button"
+            variant="outline"
+            disabled={submitting}
+            data-testid={testId(TID_V4_EDIT_CONFIRM_WITH_FILES, String(row.rowId))}
+            title={rewindWorkspaceLabel}
+            onClick={() => {
+              void handleSubmitEdit(draft, "rewind");
+            }}
+          >
+            {intl.formatMessage({ id: "chat.edit.confirm.withFiles" })}
+          </Button>
+        ) : null}
+        <Button
+          type="button"
+          variant="default"
+          data-testid={testId(TID_V4_EDIT_CONFIRM_CONVERSATION_ONLY, String(row.rowId))}
+          onClick={() => {
+            void handleSubmitEdit(draft, "preserve");
+          }}
+        >
+          {intl.formatMessage({ id: "chat.edit.confirm.conversationOnly" })}
+        </Button>
+      </div>
+      {canRewindWorkspaceWithFiles ? null : (
+        <p className="text-ui-sm text-[var(--color-foreground-subtle)]">
+          {rewindWorkspaceTooltipDescription}
+        </p>
+      )}
+    </div>
+  ) : null;
   const attachmentAction = useMemo(
     () => ({
       label: intl.formatMessage({ id: "chat.composer.attachment" }),
@@ -1000,7 +1061,9 @@ const UserInputEditBox = memo(function UserInputEditBox({
           result.result.disposition === "blocked" &&
           result.result.preview
         ) {
-          // 文件回退不安全：附件状态保留，允许改选「仅重置对话」重提。
+          // 文件回退不安全：关掉确认面板，改用冲突弹窗引导。附件状态保留，
+          // 允许改选「仅重置对话」重提。
+          setConfirmOpen(false);
           setConflictPreview(result.result.preview);
           setConflictOpen(true);
           return;
@@ -1028,23 +1091,6 @@ const UserInputEditBox = memo(function UserInputEditBox({
       row.rowId,
     ],
   );
-  const rewindWorkspaceDisabled = submitting || editWorkspaceRewindAvailability?.enabled !== true;
-  const rewindWorkspaceButton = (
-    <Button
-      type="button"
-      variant="outline"
-      size="icon-md"
-      disabled={rewindWorkspaceDisabled}
-      data-testid={testId(TID_V4_EDIT_REWIND_WORKSPACE, String(row.rowId))}
-      aria-label={rewindWorkspaceLabel}
-      onClick={() => {
-        void handleSubmitEdit(draft, "rewind");
-      }}
-    >
-      <FileClockIcon className="size-4" />
-    </Button>
-  );
-
   return (
     <RowShell rowId={row.rowId} className="flex flex-col items-end">
       <ChatPromptEditor
@@ -1170,30 +1216,21 @@ const UserInputEditBox = memo(function UserInputEditBox({
         inputTestId={testId(TID_V4_EDIT_INPUT, String(row.rowId))}
         submitTestId={testId(TID_V4_EDIT_SUBMIT, String(row.rowId))}
         cancelTestId={testId(TID_V4_EDIT_CANCEL, String(row.rowId))}
-        betweenCancelAndSubmitAction={
-          <ControlHintTooltip
-            title={rewindWorkspaceTooltipTitle}
-            description={rewindWorkspaceTooltipDescription}
-          >
-            {rewindWorkspaceDisabled ? (
-              // Button disabled 会应用 pointer-events-none，TooltipTrigger 直接落在
-              // 按钮上时收不到 hover。禁用态用外层 span 承接 hover，实际按钮仍保持 disabled。
-              <span className="inline-flex" data-disabled-tooltip-trigger="true">
-                {rewindWorkspaceButton}
-              </span>
-            ) : (
-              rewindWorkspaceButton
-            )}
-          </ControlHintTooltip>
-        }
         className="w-full max-w-xl"
         shellClassName="min-h-32"
         onChange={setDraft}
-        onSubmit={(nextText) => {
-          void handleSubmitEdit(nextText, "preserve");
+        onSubmit={() => {
+          // 面板未开：只开面板，不发送。面板已开：Enter 等价于「仅修改对话」——
+          // 破坏性的「对话和代码一起回退」只能显式点按钮。
+          if (confirmOpen) {
+            void handleSubmitEdit(draft, "preserve");
+            return;
+          }
+          setConfirmOpen(true);
         }}
         onCancel={onClose}
       />
+      {confirmPanel}
       {/* 无 native picker 的平台（手机 Web）走隐藏 file input 回退，与主输入框同一条。 */}
       <input
         ref={attachmentsApi.attachmentInputRef}

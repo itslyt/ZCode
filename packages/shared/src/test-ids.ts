@@ -576,7 +576,11 @@ export const TID_V4_EDIT_ATTACHMENT_CHIPS = "v4-edit-attachment-chips";
 /** v4 行内编辑态的附件入口（+ 菜单按钮 / 菜单项） */
 export const TID_V4_EDIT_ATTACHMENT_BUTTON = "v4-edit-attachment-button";
 export const TID_V4_EDIT_ATTACHMENT_MENU_ITEM = "v4-edit-attachment-menu-item";
-export const TID_V4_EDIT_REWIND_WORKSPACE = "v4-edit-rewind-workspace";
+/** v4 edit 发送前确认面板（默认仅改对话，可选连同代码一起回退） */
+export const TID_V4_EDIT_CONFIRM_PANEL = "v4-edit-confirm-panel";
+export const TID_V4_EDIT_CONFIRM_CONVERSATION_ONLY = "v4-edit-confirm-conversation-only";
+export const TID_V4_EDIT_CONFIRM_WITH_FILES = "v4-edit-confirm-with-files";
+export const TID_V4_EDIT_CONFIRM_CLOSE = "v4-edit-confirm-close";
 /** v4 edit 文件冲突弹窗 */
 export const TID_V4_EDIT_WORKSPACE_CONFLICT_DIALOG = "v4-edit-workspace-conflict-dialog";
 /** v4 edit 文件冲突后降级为仅裁剪对话 */

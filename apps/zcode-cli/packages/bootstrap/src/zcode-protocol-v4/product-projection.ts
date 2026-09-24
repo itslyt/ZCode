@@ -446,7 +446,10 @@ export class ProductProjection {
   // canonical command target 只按稳定实体身份寻址；rowId 仅是本次 materialization 的
   // transient lookup，刷新/replay 后变化也不会改变 target identity。
   private editTargetByEntityId = new Map<string, ConversationEditTarget>();
-  private currentEditableEntityId: string | null = null;
+  // 可编辑集合：投影是唯一所有者。历史消息也允许编辑（截断该轮及之后），
+  // 因此不再是单值。与 row actions 在同一次 materialization 内整体替换，
+  // 保证 action 与 entityId 直查 authority 不分叉。
+  private editableEntityIds = new Set<string>();
   private stableCompactCoverageBoundaryRowId: number | null = null;
   private turnHeaderRowIdByTurnId = new Map<string, number>();
   private compactMarkerRowIdByOperationId = new Map<string, number>();
@@ -748,7 +751,7 @@ export class ProductProjection {
   }
 
   resolveEditTargetByEntityId(entityId: string): ConversationEditTarget | null {
-    if (entityId !== this.currentEditableEntityId) return null;
+    if (!this.editableEntityIds.has(entityId)) return null;
     const target = this.editTargetByEntityId.get(entityId);
     return target ? { ...target, intent: { ...target.intent } } : null;
   }
@@ -940,7 +943,7 @@ export class ProductProjection {
     );
   }
 
-  /** latestQueryEditOnly：只有当前投影里的最后一条 realUser userInput row 可 edit。 */
+  /** 该 realUser 行当前是否可编辑（历史行亦可；不再蕴含 latest 语义）。 */
   isLatestEditableUserRow(rowId: number): boolean {
     const row = this.findRow(rowId);
     return Boolean(
@@ -1102,7 +1105,7 @@ export class ProductProjection {
     clone.outputContinuationRowIdByMessageId = new Map(this.outputContinuationRowIdByMessageId);
     clone.entityIdByRowId = new Map(this.entityIdByRowId);
     clone.editTargetByEntityId = new Map(this.editTargetByEntityId);
-    clone.currentEditableEntityId = this.currentEditableEntityId;
+    clone.editableEntityIds = new Set(this.editableEntityIds);
     clone.stableCompactCoverageBoundaryRowId = this.stableCompactCoverageBoundaryRowId;
     clone.turnHeaderRowIdByTurnId = new Map(this.turnHeaderRowIdByTurnId);
     clone.compactMarkerRowIdByOperationId = new Map(this.compactMarkerRowIdByOperationId);
@@ -1147,7 +1150,7 @@ export class ProductProjection {
     this.outputContinuationRowIdByMessageId = candidate.outputContinuationRowIdByMessageId;
     this.entityIdByRowId = candidate.entityIdByRowId;
     this.editTargetByEntityId = candidate.editTargetByEntityId;
-    this.currentEditableEntityId = candidate.currentEditableEntityId;
+    this.editableEntityIds = candidate.editableEntityIds;
     this.stableCompactCoverageBoundaryRowId = candidate.stableCompactCoverageBoundaryRowId;
     this.turnHeaderRowIdByTurnId = candidate.turnHeaderRowIdByTurnId;
     this.compactMarkerRowIdByOperationId = candidate.compactMarkerRowIdByOperationId;
@@ -1187,22 +1190,15 @@ export class ProductProjection {
     }
     const compactActive = prospective.control.activeWorks.some((work) => work.kind === "compact");
     const completionBlockingActive = prospective.control.activeWorks.length > 0;
-    let latestEditable: ConversationRow | undefined;
+    // 编辑门：历史 realUser 行同样可编辑（编辑 = 截断该轮及之后），所以收集全部
+    // 合法目标而非只取最后一条。compact 进行中不下发任何编辑入口。
+    const editableRows: ConversationRow[] = [];
     let latestAssistant: AssistantTextRow | undefined;
-    for (let index = rows.length - 1; index >= 0; index -= 1) {
-      const row = rows[index]!;
-      if (
-        !latestEditable &&
-        !compactActive &&
-        row.kind === "userInput" &&
-        row.origin === "realUser"
-      ) {
-        latestEditable = row;
+    for (const row of rows) {
+      if (!compactActive && row.kind === "userInput" && row.origin === "realUser") {
+        editableRows.push(row);
       }
-      if (!latestAssistant && row.kind === "assistantText") {
-        latestAssistant = row;
-      }
-      if (latestEditable && latestAssistant) break;
+      if (!latestAssistant && row.kind === "assistantText") latestAssistant = row;
     }
     // 旧逻辑只按“最新完整 assistant”挑 retry，background result 的
     // synthetic turn 因此会错误获得入口；若只在 find 条件里过滤 synthetic，又会跳过
@@ -1234,23 +1230,22 @@ export class ProductProjection {
       }
       return latestAssistant;
     })();
-    const latestEditableEntityId =
-      latestEditable === undefined
-        ? null
-        : (this.entityIdByRowId.get(latestEditable.rowId) ?? null);
     // edit action 与命令 resolver 必须共用 canonical target authority。过去 drain 分支只
     // 登记 messageId，UI 因而显示 Edit，但提交必被 resolver 以 actionUnavailable 拒绝。
-    const latestEditableRowId =
-      latestEditable &&
-      latestEditableEntityId &&
-      this.messageIdByRowId.has(latestEditable.rowId) &&
-      this.editTargetByEntityId.has(latestEditableEntityId)
-        ? latestEditable.rowId
-        : null;
-    // entity target 历史表会保留旧记录；仅撤销 row action 不足以阻止
-    // entityId 直查绕过 latest-only 语义。当前可编辑 authority 与 actions 在同一次
-    // materialization 中更新，resolver 不再遍历 rows，也不把 rowId 当 canonical key。
-    this.currentEditableEntityId = latestEditableRowId === null ? null : latestEditableEntityId;
+    // entity target 历史表会保留旧记录；仅撤销 row action 不足以阻止 entityId 直查绕过，
+    // 因此可编辑集合与 actions 在同一次 materialization 中整体替换，resolver 不再遍历
+    // rows，也不把 rowId 当 canonical key。
+    const editableRowIds = new Set<number>();
+    const editableEntityIds = new Set<string>();
+    for (const row of editableRows) {
+      const entityId = this.entityIdByRowId.get(row.rowId);
+      if (!entityId) continue;
+      if (!this.messageIdByRowId.has(row.rowId)) continue;
+      if (!this.editTargetByEntityId.has(entityId)) continue;
+      editableRowIds.add(row.rowId);
+      editableEntityIds.add(entityId);
+    }
+    this.editableEntityIds = editableEntityIds;
     const latestRetryableRowId = latestRetryable?.rowId ?? null;
     const deltas: ConversationDelta[] = [];
 
@@ -1267,7 +1262,7 @@ export class ProductProjection {
         if (canRewindFiles) nextActions.canRewindFiles = true;
         else delete nextActions.canRewindFiles;
       } else if (row.kind === "userInput") {
-        if (row.rowId === latestEditableRowId) {
+        if (editableRowIds.has(row.rowId)) {
           nextActions.canEdit = true;
           nextActions.editDisposition = "rewind";
         } else {

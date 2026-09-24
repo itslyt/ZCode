@@ -18,10 +18,12 @@ import type {
   WorkspaceCheckpointArtifact,
 } from "../deps.js";
 import {
+  resolveFileRewindTargetMessageIds,
   selectCheckpointForRewind,
   selectCheckpointsForMessages,
   throwIfTurnAborted,
 } from "../helpers/index.js";
+import { readActiveMessagesForWorkspaceRewind } from "./rewind-message.js";
 import type {
   WorkspaceFileRewindApplyResult,
   WorkspaceFileRewindIgnoredFile,
@@ -80,6 +82,8 @@ export async function previewWorkspaceFileRewind(
   this: AgentRuntimeInternal,
   options: {
     abortSignal?: AbortSignal;
+    /** 从 targetMessageId 起级联到活跃分支末尾；与 targetMessageIds 互斥。 */
+    cascade?: boolean;
     targetCheckpointId?: string;
     targetMessageId?: MessageId;
     targetMessageIds?: MessageId[];
@@ -95,6 +99,8 @@ export async function applyWorkspaceFileRewind(
   this: AgentRuntimeInternal,
   options: {
     abortSignal?: AbortSignal;
+    /** 从 targetMessageId 起级联到活跃分支末尾；与 targetMessageIds 互斥。 */
+    cascade?: boolean;
     targetCheckpointId?: string;
     targetMessageId?: MessageId;
     targetMessageIds?: MessageId[];
@@ -311,7 +317,15 @@ async function buildWorkspaceFileRewindPlan(
   const checkpoints = resolveTargetCheckpoints(events, {
     targetCheckpointId: options.targetCheckpointId,
     targetMessageId: options.targetMessageId,
-    targetMessageIds: options.targetMessageIds,
+    targetMessageIds: resolveFileRewindTargetMessageIds({
+      cascade: options.cascade,
+      targetMessageId: options.targetMessageId,
+      targetMessageIds: options.targetMessageIds,
+      // cascade 展开走活跃分支口径，与 rewindWorkspaceCascadeToMessage 同源。
+      activeMessages: options.cascade
+        ? await readActiveMessagesForWorkspaceRewind.call(this)
+        : undefined,
+    }),
   });
   if (checkpoints.length === 0) {
     return {

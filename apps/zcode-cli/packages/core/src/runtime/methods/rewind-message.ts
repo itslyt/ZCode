@@ -195,7 +195,8 @@ async function rewindWorkspaceCascadeToMessage(
   });
 }
 
-async function readActiveMessagesForWorkspaceRewind(
+/** 活跃分支上的消息集（含 revert 裁切语义）。cascade 展开与 rewind 共用同一口径。 */
+export async function readActiveMessagesForWorkspaceRewind(
   this: AgentRuntimeInternal,
 ): Promise<MessageWithParts[]> {
   if (!this.sessionStore) return [];

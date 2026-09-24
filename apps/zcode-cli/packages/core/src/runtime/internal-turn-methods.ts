@@ -280,6 +280,8 @@ export interface AgentRuntimeTurnMethods {
   ): Promise<WorkspaceForkResult>;
   previewWorkspaceFileRewind(options?: {
     abortSignal?: AbortSignal;
+    /** 从 targetMessageId 起级联到活跃分支末尾；与 targetMessageIds 互斥。 */
+    cascade?: boolean;
     targetCheckpointId?: string;
     targetMessageId?: MessageId;
     targetMessageIds?: MessageId[];
@@ -288,6 +290,8 @@ export interface AgentRuntimeTurnMethods {
   }): Promise<WorkspaceFileRewindPreview>;
   applyWorkspaceFileRewind(options?: {
     abortSignal?: AbortSignal;
+    /** 从 targetMessageId 起级联到活跃分支末尾；与 targetMessageIds 互斥。 */
+    cascade?: boolean;
     targetCheckpointId?: string;
     targetMessageId?: MessageId;
     targetMessageIds?: MessageId[];

@@ -144,6 +144,29 @@ export function activeSuffixMessageIdsForRewind(
   return messages.slice(targetIndex).map((message) => message.info.id as MessageId);
 }
 
+/**
+ * 编辑历史消息时的文件回滚目标集。
+ *
+ * 编辑第 N 轮意味着对话截断到第 N 轮，所以文件也必须从第 N 轮起级联到活跃分支末尾；
+ * 只回滚第 N 轮会让第 N+1.. 轮的改动与截断后的对话矛盾，而且后续轮 checkpoint 会基于
+ * 已回滚的内容再次回滚。展开为空（目标已被 revert 裁掉）时退回单值，与
+ * rewindWorkspaceCascadeToMessage 的降级规则保持一致。
+ */
+export function resolveFileRewindTargetMessageIds(options: {
+  cascade?: boolean;
+  targetMessageId?: MessageId;
+  targetMessageIds?: MessageId[];
+  activeMessages?: readonly MessageWithParts[];
+}): MessageId[] | undefined {
+  if (!options.cascade || !options.targetMessageId) return options.targetMessageIds;
+
+  const suffix = activeSuffixMessageIdsForRewind(
+    options.activeMessages ?? [],
+    options.targetMessageId,
+  );
+  return suffix.length > 0 ? suffix : [options.targetMessageId];
+}
+
 function checkpointMatchesMessage(
   checkpoint: CheckpointCreatedPayload,
   targetMessageId: MessageId,

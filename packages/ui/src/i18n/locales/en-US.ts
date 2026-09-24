@@ -1672,6 +1672,11 @@ const enUS: Record<string, string> = {
   "chat.edit.resetConversationAndFiles.running": "Wait for the current work to stop",
   "chat.edit.resetConversationAndFiles.unavailable":
     "File reset is unavailable while compacting or an interaction is pending",
+  "chat.edit.confirm.title": "Confirm send?",
+  "chat.edit.confirm.description":
+    "All code changes will be reverted to before this message, and the following conversation will be removed. Continue?",
+  "chat.edit.confirm.conversationOnly": "Chat only",
+  "chat.edit.confirm.withFiles": "Continue and revert code",
   "chat.edit.workspaceConflict.title": "Files could not be safely reset",
   "chat.edit.workspaceConflict.description":
     "No conversation history was changed. Review the conflicting or ignored files, then reset only the conversation or cancel.",
