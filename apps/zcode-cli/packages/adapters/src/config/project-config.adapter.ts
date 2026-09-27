@@ -59,6 +59,7 @@ export function loadProjectConfigFile(
   const baseDir = getProjectConfigBaseDir(result.path);
   const diagnostics = [...result.diagnostics];
   const hooks = result.loaded ? result.config.hooks : undefined;
+  const projectEnv = result.loaded ? result.config.env : undefined;
 
   if (hooks) {
     diagnostics.push({
@@ -66,6 +67,18 @@ export function loadProjectConfigFile(
       filePath: result.path,
       message: "Project hooks are pending workspace trust and remain blocked",
       path: "hooks",
+      severity: "warning",
+    });
+  }
+
+  if (projectEnv && Object.keys(projectEnv).length > 0) {
+    // 项目层 env 等价于“仓库可向工具子进程注入任意变量”（PATH/NODE_OPTIONS/BASH_ENV），
+    // 而 acquire 授权的基础设施尚未做，所以一律剥离而不是放行，见 specs/config-env.md。
+    diagnostics.push({
+      code: "config_project_env_blocked",
+      filePath: result.path,
+      message: "Project env is blocked until workspace trust support lands",
+      path: "env",
       severity: "warning",
     });
   }
@@ -120,14 +133,11 @@ function getProjectConfigBaseDir(path: string): string {
 }
 
 function normalizeProjectConfig(config: RuntimeConfigPatch, baseDir: string): RuntimeConfigPatch {
-  const normalized: RuntimeConfigPatch = config.hooks
-    ? (() => {
-        const { hooks: _hooks, ...safeConfig } = config;
-        // Project Hook declarations are retained only in the immutable candidate side-channel.
-        // The executable RuntimeConfigPatch remains hook-free until a later admission phase.
-        return safeConfig;
-      })()
-    : { ...config };
+  // 项目层的 hooks 与 env 都不进可执行 patch：
+  // hooks 保留在不可变候选 side-channel，等后续 admission 阶段；
+  // env 本期不支持项目层（工具子进程环境变量的唯一来源是用户级配置），直接剥离。
+  const { hooks: _hooks, env: _env, ...safeConfig } = config;
+  const normalized: RuntimeConfigPatch = safeConfig;
 
   if (!normalized.mcp?.servers) return normalized;
 

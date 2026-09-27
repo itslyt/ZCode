@@ -78,6 +78,12 @@ export interface NodeExecutionAdapterOptions {
   network?: NetworkEgressEnvPolicy;
   platform?: NodeJS.Platform;
   processEnv?: NodeJS.ProcessEnv;
+  /**
+   * 配置声明的工具子进程环境变量（用户级 `config.env`，已由 resolveConfiguredToolEnv 过滤）。
+   * 作为 overlay.set 的最低优先层，在 sanitize 与网络注入之后应用；
+   * 单次调用的 request.env.set 优先于它。
+   */
+  configuredEnv?: Record<string, string>;
   progressIntervalMs?: number;
   progressTailBytes?: number;
   progressThresholdMs?: number;

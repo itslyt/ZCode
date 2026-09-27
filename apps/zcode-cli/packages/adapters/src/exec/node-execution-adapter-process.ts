@@ -5,6 +5,7 @@ import { createCwdCapturePlan } from "./cwd-capture.js";
 import {
   applyResolvedShellCommand,
   buildExecutionEnv,
+  mergeExecutionEnvOverlay,
   resolveExecutionCommand,
   setResolvedShellLoginMode,
 } from "./execution-command.js";
@@ -60,7 +61,7 @@ export class NodeExecutionAdapterProcess extends NodeExecutionAdapterResults {
   }
 
   protected async prepareChildSpawn(request: ExecutionRequest): Promise<PreparedChildSpawn> {
-    const env = buildExecutionEnv(request.env, {
+    const env = buildExecutionEnv(mergeExecutionEnvOverlay(this.options.configuredEnv, request.env), {
       network: this.options.network,
       platform: this.platform,
       processEnv: this.processEnv,

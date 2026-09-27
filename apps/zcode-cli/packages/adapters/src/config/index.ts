@@ -239,9 +239,12 @@ class ConfigStore {
 
 export class ConfigPortImpl implements ConfigPort {
   private store: ConfigStore;
+  // env 不在 ConfigKey 里（不参与 scoped get/observe），只在 getAll 里按原样返回。
+  private env: Record<string, string>;
 
   constructor(initial?: RuntimeConfigPatch) {
     this.store = new ConfigStore(initial ?? DefaultConfig);
+    this.env = { ...(initial?.env ?? DefaultConfig.env) };
   }
 
   get<K extends ConfigKey>(key: K): ConfigValue<K> {
@@ -329,6 +332,7 @@ export class ConfigPortImpl implements ConfigPort {
       modelAnomalyGuard:
         this.store.get(ConfigKey.ModelAnomalyGuard) ?? DefaultConfig.modelAnomalyGuard,
       hooks: this.store.get(ConfigKey.Hooks) ?? DefaultConfig.hooks,
+      env: { ...this.env },
       ui: {
         locale: this.store.get(ConfigKey.UiLocale) ?? DefaultConfig.ui.locale,
         theme: this.store.get(ConfigKey.UiTheme) ?? DefaultConfig.ui.theme,

@@ -302,6 +302,7 @@ export const ZCodeConfigFileSchema = z
     toolConcurrency: toolConcurrencySchema.optional(),
     modelAnomalyGuard: modelAnomalyGuardSchema.optional(),
     hooks: hooksSchema.optional(),
+    env: stringRecordSchema.optional(),
   })
   .passthrough();
 
@@ -313,7 +314,8 @@ export type ConfigDiagnosticSeverity = "warning" | "error";
 export type ConfigDiagnosticCode =
   | "config_file_invalid"
   | "config_mcp_server_invalid"
-  | "config_project_hooks_pending_trust";
+  | "config_project_hooks_pending_trust"
+  | "config_project_env_blocked";
 
 export interface ConfigDiagnostic {
   code: ConfigDiagnosticCode;
@@ -419,6 +421,9 @@ function parsedConfigFileToRuntimePatch(parsed: ZCodeConfigFile): RuntimeConfigP
   if (parsed.toolConcurrency) config.toolConcurrency = parsed.toolConcurrency;
   if (parsed.modelAnomalyGuard) config.modelAnomalyGuard = parsed.modelAnomalyGuard;
   if (parsed.hooks) config.hooks = parsed.hooks;
+  // 工具子进程的 env：只有用户级声明会走到这里（项目层在 project-config.adapter 被剥离），
+  // 保护键的剔除与诊断在 bootstrap 装配处做（resolveConfiguredToolEnv）。
+  if (parsed.env) config.env = parsed.env;
 
   return config;
 }

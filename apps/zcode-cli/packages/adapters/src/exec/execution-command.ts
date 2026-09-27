@@ -25,6 +25,19 @@ export interface ResolvedSpawnCommand {
   usesLoginShell?: boolean;
 }
 
+/**
+ * 把配置声明的工具子进程环境变量作为最低优先层合进单次调用的 overlay。
+ * `set` 在 buildExecutionEnv 里于 sanitize 与网络注入之后应用，所以任意键都能到达
+ * 子进程，不需要动 ZCODE_TOOL_ENV_PASSTHROUGH_JSON 那条只封存敏感键的通道。
+ */
+export function mergeExecutionEnvOverlay(
+  configuredEnv: Record<string, string> | undefined,
+  overlay: ExecutionEnvOverlay | undefined,
+): ExecutionEnvOverlay | undefined {
+  if (!configuredEnv || Object.keys(configuredEnv).length === 0) return overlay;
+  return { ...overlay, set: { ...configuredEnv, ...overlay?.set } };
+}
+
 export function buildExecutionEnv(
   overlay?: ExecutionEnvOverlay,
   options: {

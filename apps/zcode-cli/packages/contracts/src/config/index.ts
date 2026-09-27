@@ -250,6 +250,8 @@ export interface RuntimeConfig {
   };
   toolConcurrency: ToolConcurrencyConfig;
   modelAnomalyGuard: ModelAnomalyGuardConfig;
+  /** 用户级配置声明的工具子进程环境变量（项目层声明会被剥离，见 config_project_env_blocked）。 */
+  env: Record<string, string>;
   hooks: HooksRuntimeConfig;
   ui: {
     locale: UiLocale;
@@ -272,6 +274,7 @@ export interface RuntimeConfigPatch {
   logging?: Partial<RuntimeConfig["logging"]>;
   toolConcurrency?: Partial<RuntimeConfig["toolConcurrency"]>;
   modelAnomalyGuard?: Partial<RuntimeConfig["modelAnomalyGuard"]>;
+  env?: Record<string, string>;
   hooks?: HooksRuntimeConfigPatch;
   ui?: Partial<RuntimeConfig["ui"]>;
 }
@@ -348,6 +351,7 @@ export const DefaultRuntimeConfig: RuntimeConfig = {
     maxBudgetWarningsPerTurn: 3,
     repeatedToolCallWarningThreshold: 3,
   },
+  env: {},
   hooks: {
     enabled: false,
     events: {},

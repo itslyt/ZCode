@@ -302,6 +302,44 @@ export function shouldCaptureZCodeToolEnvPassthroughKey(key: string): boolean {
   return shouldSanitizeZCodeRuntimeEnvKey(key);
 }
 
+const CONFIGURED_TOOL_ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+export type ConfiguredToolEnvRejectionReason = "sanitized_key" | "reserved_key" | "invalid_name";
+
+export interface ConfiguredToolEnvResolution {
+  accepted: Record<string, string>;
+  rejected: Array<{ key: string; reason: ConfiguredToolEnvRejectionReason }>;
+}
+
+/**
+ * 配置里（`config.env`）声明的工具子进程环境变量。
+ * 受保护的键在这里就剔除，而不是等到子进程边界：sanitize 名单里的键在
+ * `buildExecutionEnv` 会先被删、或被 applyNetworkEgressEnv 覆盖，放行只会得到
+ * "配置写了但没用"的静默失效；封存载体键则不允许被配置伪造。
+ */
+export function resolveConfiguredToolEnv(
+  env: Record<string, string> | undefined,
+): ConfiguredToolEnvResolution {
+  const accepted: Record<string, string> = {};
+  const rejected: ConfiguredToolEnvResolution["rejected"] = [];
+  for (const [key, value] of Object.entries(env ?? {})) {
+    if (!CONFIGURED_TOOL_ENV_NAME_PATTERN.test(key)) {
+      rejected.push({ key, reason: "invalid_name" });
+      continue;
+    }
+    if (key.toUpperCase() === ZCODE_TOOL_ENV_PASSTHROUGH_ENV_KEY) {
+      rejected.push({ key, reason: "reserved_key" });
+      continue;
+    }
+    if (shouldSanitizeZCodeRuntimeEnvKey(key)) {
+      rejected.push({ key, reason: "sanitized_key" });
+      continue;
+    }
+    accepted[key] = value;
+  }
+  return { accepted, rejected };
+}
+
 function stringifyZCodeToolEnvPassthroughEnv(
   captured: Record<string, string>,
 ): Record<string, string> {

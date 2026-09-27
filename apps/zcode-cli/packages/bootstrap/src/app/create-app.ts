@@ -34,7 +34,7 @@ import {
   type ExecutionShellSelection,
   type MessageId,
 } from "@zcode/contracts";
-import { isRemoteWorkspaceIdentity, resolveZCodeRuntimeEnv } from "@zcode/shared";
+import { isRemoteWorkspaceIdentity, resolveConfiguredToolEnv, resolveZCodeRuntimeEnv } from "@zcode/shared";
 import {
   ZCODE_ATTACHMENT_FAULT_CODES,
   ZCodeAttachmentFaultError,
@@ -389,9 +389,20 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
             workingDirectory,
           })));
     const ownsMcpPort = options.mcpPort === undefined && mcpPort !== undefined;
+    const configuredToolEnv = resolveConfiguredToolEnv(configResult.config.env);
+    for (const rejection of configuredToolEnv.rejected) {
+      // 受保护的键在装配时就剔除并留痕：放行只会在子进程边界被 sanitize 或网络配置覆盖，
+      // 结果是“配置写了但没用”的静默失效。
+      logger.warn("[config] env key rejected", {
+        event: "config.env.key_rejected",
+        key: rejection.key,
+        reason: rejection.reason,
+      });
+    }
     const executionPort =
       options.executionPort ??
       createNodeExecutionAdapter({
+        configuredEnv: configuredToolEnv.accepted,
         onToolExecResource: options.onToolExecResource,
         network: {
           httpProxy: configResult.config.network.httpProxy,

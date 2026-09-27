@@ -42,6 +42,7 @@ export function mergeConfigs(...configs: PrioritizedConfig[]): RuntimeConfigPatc
         : inputConfig;
     const previousHooks = result.hooks;
     const previousPlugins = result.plugins;
+    const previousEnv = result.env;
     Object.assign(result, config);
 
     // Deep merge nested objects
@@ -147,6 +148,11 @@ export function mergeConfigs(...configs: PrioritizedConfig[]): RuntimeConfigPatc
     }
     if (config.ui) {
       result.ui = { ...result.ui, ...config.ui };
+    }
+    if (config.env) {
+      // Object.assign 已把 result.env 指向当前高优先级层（引用替换，不是按键合并）。
+      // 必须从 previousEnv 开始构造，否则 user 层独有的键会被上层整体顶掉。
+      result.env = { ...previousEnv, ...config.env };
     }
   }
 

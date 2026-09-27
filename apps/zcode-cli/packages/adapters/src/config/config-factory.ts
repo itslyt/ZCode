@@ -434,6 +434,9 @@ function resolveConfigDiagnosticLogMessage(
   if (code === "config_project_hooks_pending_trust") {
     return "Project hooks pending workspace trust";
   }
+  if (code === "config_project_env_blocked") {
+    return "Project env blocked";
+  }
   return "Config file failed to load";
 }
 
@@ -443,6 +446,9 @@ function resolveConfigDiagnosticLogEvent(
   if (code === "config_mcp_server_invalid") return "config.mcp_server.skipped";
   if (code === "config_project_hooks_pending_trust") {
     return "config.project_hooks.pending_trust";
+  }
+  if (code === "config_project_env_blocked") {
+    return "config.project_env.blocked";
   }
   return "config.file.invalid";
 }
