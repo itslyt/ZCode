@@ -28,7 +28,7 @@
 **目标**
 
 - 用户级 `~/.zcode/cli/config.json` 支持顶层 `env: Record<string, string>`（直接值）与 `envFromShell: string[]`（从 login shell 快照继承），改动后**不需要重新编译、不需要改 shell、不需要 launchctl**。
-- 项目级 `<workspace>/.zcode/config.json` 同名字段，但受信任门禁约束（见 §3.4）。
+- 作用范围限于用户级 `~/.zcode/cli/config.json`：项目级 `<workspace>/.zcode/config.json` 的这两个字段本期不生效，见 §3.4。
 - 两者都注入到 Bash / 工具子进程，语义与"进程本来就有这个变量"等价。
 - 复用已有的 shell 快照抓取，不新增抓取机制、不重复配置一遍 `.zshrc` 里已有的变量。
 - 默认关闭 `envFromShell`：不声明时行为与今天完全一致（零行为变化、零启动开销）。
@@ -41,6 +41,7 @@
 - 不注入 MCP server（MCP 有自己的 `env` 字段，`schema.ts:82`，保持隔离）与 relay/桌面主进程。
 - 不做热重载：生效时机与其它配置字段一致，见 §3.5。
 - 不支持值插值/引用（`${HOME}`、`$PATH` 之类），只存字面量。
+- 项目级配置生效（含配套的信任门禁）：本期不做，理由与二期方案见 §3.4。
 
 ## 3. 产品规则
 
@@ -80,14 +81,22 @@
 
 `PATH` **允许**（用户的真实诉求之一就是给工具子进程补 PATH），不列入拒绝清单。
 
-### 3.4 项目级配置需要信任
+### 3.4 项目级配置：本期不生效
 
-`<workspace>/.zcode/config.json`（及向上到 `.git` 根的各层，`packages/shared/src/workspace-hook-config.ts:174-179`）里的 `env` 与 `envFromShell` 等价于"仓库可以让你的工具子进程执行任意东西"（`PATH`、`NODE_OPTIONS`、`BASH_ENV`），`envFromShell` 更是**凭据外泄面**（仓库写 `["AWS_*", "GITHUB_*"]` 就能把用户的云凭据注入仓库可控脚本的环境）。因此：
+`<workspace>/.zcode/config.json`（及向上到 `.git` 根的各层，`packages/shared/src/workspace-hook-config.ts:174-179`）里的 `env` 与 `envFromShell` 等价于"仓库可以让你的工具子进程执行任意东西"（`PATH`、`NODE_OPTIONS`、`BASH_ENV`），`envFromShell` 更是**凭据外泄面**（仓库写 `["AWS_*", "GITHUB_*"]` 就能把用户的云凭据注入仓库可控脚本的环境）。
 
-- **未信任**：这两个字段都不从该层进入合并结果，产生 `config_project_env_pending_trust` 诊断；行为对齐 hooks 的现有语义（`project-config.adapter.ts:122-130` 把 hooks 从 patch 中剥离，只留在 side-channel）。
-- **已信任**：生效。
-- 信任记录复用现有机制（`workspace-hook-trust-v1.json`，`adapters/src/storage/workspace-hook-trust-store.ts:21`；授予走 `zcode hooks trust grant` / 桌面 review controller）。**摘要口径统一**：把项目层声明的 `env` 与 `envFromShell` 并入现有的 hook declaration digest，改内容即视为声明变化 → 重新回到 `pending_trust`。这样"先信任 hooks、之后偷偷加 env"不成立。
-- 用户级 `~/.zcode/cli/config.json` 不设门禁——那是用户自己的文件，效果等同于用户在 shell 里 export。
+**本期规则**：项目层的这两个字段一律**不生效**——在 `normalizeProjectConfig`（`project-config.adapter.ts:122-130`，与 hooks 的剥离同一处）里从 patch 中剥离，并产生 `config_project_env_blocked` 诊断（§3.6）。
+
+理由：用户级已经完全覆盖原始诉求（`.zshrc` 里配好的、以及以后想改就改的变量都落在用户级文件），而让项目级生效要拖进一整套授权基础设施（digest 口径、信任库复用、声明变更失效语义）。先做用户级，等真出现"某个仓库需要固定几个变量"的需求再补门禁。
+
+**注意不能"不支持却放行"**：若只是不实现门禁而让项目层照常合并，就等于 clone 一个仓库即可获得任意 env 注入能力——比 hooks 更危险。所以本期是剥离（fail-closed），不是忽略。
+
+**二期方案（真实需求出现时再做）**：
+
+- **待授权**：这两个字段都不进入合并结果，`config_project_env_blocked` 的语义由"不支持"改为"待信任"；行为对齐 hooks 的现有语义（候选只留在不可变 side-channel 等待 admission）。
+- **已授权**：生效。
+- 信任记录复用现有机制（`workspace-hook-trust-v1.json`，`adapters/src/storage/workspace-hook-trust-store.ts:20`；判定见 `evaluateWorkspaceHookEntry`，`core/src/hooks/workspace-hook-trust-evaluation.ts:15`；授予走 `zcode hooks trust grant` 或设置页内联信任入口）。**摘要口径统一**：把项目层声明的 `env` 与 `envFromShell` 并入现有的 hook declaration digest，改内容即视为声明变化 → 重新回到待授权。这样"先授权 hooks、之后偷偷加 env"不成立。
+- 用户级 `~/.zcode/cli/config.json` 始终不设门禁——那是用户自己的文件，效果等同于用户在 shell 里 export。
 
 ### 3.5 生效时机
 
@@ -101,7 +110,7 @@
 新增两个 `ConfigDiagnosticCode`（`schema.ts:313-316`）：
 
 - `config_env_key_rejected`（warning）：某键被 §3.3 拒绝，message 含键名与原因分类（`sanitized_key` / `reserved_key` / `invalid_name`），并标明来源（`env` / `envFromShell`）。
-- `config_project_env_pending_trust`（warning）：项目层声明了 env 或 envFromShell 但未信任。
+- `config_project_env_blocked`（warning）：项目层声明了 env 或 envFromShell 但不生效（本期原因：项目级不支持；二期门禁落地后同一 code 表示"待信任"）。
 
 消费方式沿用现有 `logConfigDiagnostics`（`config-factory.ts:400-428`）→ logger.warn，不新增 UI 面。
 
@@ -138,14 +147,14 @@
 | 执行适配器      | `adapters/src/exec/`：`NodeExecutionAdapterOptions` + `prepareChildSpawn`（`node-execution-adapter-process.ts:62-67`） | 新 option `configuredEnv?: Record<string,string>`；与 `request.env` 合成一个 overlay：`set = {...configuredEnv, ...request.env.set}`，`unset = request.env.unset`，`base = request.env.base`                                      |
 | 子进程 env 组装 | `execution-command.ts:28-69`                                                                                           | **不改**。`overlay.set` 已在 sanitize + 网络注入之后应用（:60-66），配置键天然不被 sanitize 吞掉                                                                                                                                  |
 | shell 快照      | `runtimeLoginShellEnvCapture.ts:220-246`（`captureLoginShellEnvSnapshotSync`）                                         | **不改**：复用现有抓取与缓存，不新增 shell 调用逻辑                                                                                                                                                                               |
-| 项目信任        | `project-config.adapter.ts:61-130` + digest 计算处                                                                     | 加两个字段的 pending 诊断与剥离，二者并入 declaration digest                                                                                                                                                                      |
+| 项目层声明      | `project-config.adapter.ts:59-130`（与 hooks 剥离同一处）                                                              | 本期：把 `env` / `envFromShell` 从项目层的 patch 中剥离（照 `normalizeProjectConfig` 现有写法），并出 `config_project_env_blocked` 诊断；信任门禁与 digest 并入属二期（§3.4）                                                     |
 
 **明确不做**：不要用 `ZCODE_TOOL_ENV_PASSTHROUGH_JSON`（`runtimeEnv.ts:227-238`）承载配置 env。该通道的准入判定 `shouldCaptureZCodeToolEnvPassthroughKey`（`runtimeEnv.ts:294-303`）是"只封存本来会被 sanitize 的敏感键"，放宽它等于削弱 CUA/telemetry/remote 的隔离语义。
 
 ## 5. 事件顺序
 
 ```
-~/.zcode/cli/config.json (+ 项目层)
+~/.zcode/cli/config.json（项目层同名声明在本期被剥离）
         │  同步读盘，createConfig()                       create-app.ts:153
         ▼
 RuntimeConfig.env / .envFromShell
@@ -188,21 +197,21 @@ shell 快照另有一处差异：桌面 Main 已经在启动时异步抓过一�
 1. 用户级 config 写入 `"env": {"KS_AGENT_PLATFORM": "codeflicker", "FLICKER_USERNAME": "liuyutong08"}`，新开会话后 Bash `echo $KS_AGENT_PLATFORM` = `codeflicker`；`obo_token_fetcher.sh` 不再返回 `AUTH_FAILED`。
 2. 同名键在 `process.env` 里已存在（例如交互式 shell 里 export 过）时，以配置值为准，并留下一条 `debug` 日志。
 3. 保护键：配置 `"env": {"HTTP_PROXY": "...", "ZCODE_CUA_BROKER_SOCKET": "...", "1BAD": "x"}` → 三者都不生效，各产生一条 `config_env_key_rejected`；代理仍由 `network.httpProxy` 决定。
-4. 项目层未信任：`<workspace>/.zcode/config.json` 声明 env/envFromShell → 不生效 + `config_project_env_pending_trust`；`zcode hooks trust grant` 后新会话生效；改动声明内容后重新变为 pending。
+4. 项目层声明被阻断：`<workspace>/.zcode/config.json` 写 env/envFromShell → 不生效 + `config_project_env_blocked`；同一文件里的 hooks/mcp 等字段行为不变；用户级同名键照常生效。
 5. 优先级：某个 hook/plugin 通过 `request.env.set` 注入同名键 → 该次调用以 hook 值为准。
-6. 分层合并：user 层写 `env: {A:1,B:2}`，project（已信任）写 `env: {B:3}` → 生效集合为 `A=1,B=3`。
+6. 分层与剥离：user 层写 `env: {A:1,B:2}`，project 层写 `env: {B:3}` → 生效集合为 `A=1,B=2`（项目层被剥离），并有一条 `config_project_env_blocked`。
 7. 打包态验证：安装版 app（非 dev）改 `~/.zcode/cli/config.json` → 新会话生效，无需重编译、无需 launchctl。
 8. 回归：`env` 字段存在时 MCP server 的 env 行为不变（仍只看 `mcp.servers.<name>.env`）。
 9. `"envFromShell": ["KS_AGENT_PLATFORM", "FLICKER_*"]` → 新会话 Bash 里 `KS_AGENT_PLATFORM`（精确命中）与 `FLICKER_USERNAME`/`RELAY_PLATFORM`（前缀命中）都可见；`.zshrc` 无需改动。
 10. 不声明 `envFromShell` 时行为与改动前完全一致（`KS_AGENT_PLATFORM` 仍不在 Bash 里），且不产生任何额外 shell 抓取。
 11. `envFromShell: ["HTTP_PROXY"]` → 拒绝 + `config_env_key_rejected`；`envFromShell: ["A*B"]` / `["a b"]` → 解析期报 `config_file_invalid`。
 12. `envFromShell` 声明的键在快照里不存在（例如拼错、或 shell init 失败返回 `null`）→ 不报错、不阻塞，Bash 里没有该变量，日志有 `debug` 记录。
-13. 项目层 `envFromShell: ["AWS_*"]` 未信任 → 不生效（凭据不外泄）。
+13. 项目层 `envFromShell: ["AWS_*"]` → 一律不生效（本期直接剥离），凭据不外泄。
 
 ## 8. 测试与验证
 
 - `pnpm --dir apps/zcode-cli/packages/core test`：execution overlay 合成与优先级（快照 < config.env < request.env），以及 §3.3 过滤（拒绝清单命中即丢弃）。
-- adapters/config 侧单测：schema 映射（两个字段进 patch）、`config-merger` 的按键深合并与 `envFromShell` 拼接去重、项目层未信任时的剥离与诊断码。
+- adapters/config 侧单测：schema 映射（两个字段进 patch）、`config-merger` 的按键深合并与 `envFromShell` 拼接去重、项目层声明的剥离与诊断码。
 - 匹配器单测（§3.7 规则）：精确、`前缀*`、大小写不敏感、非法模式被拒；用**注入的假快照**测，不真的去跑 shell。
 - shell 快照交互测试：mock `captureLoginShellEnvSnapshotSync`，断言未命中键不报错、命中键出现在 overlay 且被 sanitize 拒绝清单挡住。
 - headless CLI 真机验证：`ZCODE_ENV=production node .../tsx src/main.ts -p "..." --surface terminal`，让 agent 执行 `echo $KS_AGENT_PLATFORM`，并直查日志确认诊断是否按预期出现。
@@ -212,20 +221,21 @@ shell 快照另有一处差异：桌面 Main 已经在启动时异步抓过一�
 ## 9. 落地步骤（建议顺序）
 
 1. schema + 类型 + 合并规则（含单测）。
-2. 过滤与诊断（§3.3 / §3.6）。
+2. 过滤与诊断（§3.3 / §3.6）+ 项目层声明的剥离（§3.4 本期部分）。
 3. execution adapter 的 `configuredEnv` option + overlay 合成（含单测）。
 4. create-app 装配点接线（headless 与 desktop 两条链路）。
-5. `envFromShell`：匹配器 + 快照消费 + 与 §3.1-§3.6 的优先级接线（可与 6 并行）。
-6. 项目层信任门禁（含 digest 并入与诊断）。
-7. 真机验证（headless）→ 打包验收。
+5. `envFromShell`：匹配器 + 快照消费 + 与 §3.2 的优先级接线。
+6. 真机验证（headless）→ 打包验收。
 
-1–4 是可独立交付的最小闭环（覆盖"配置里写值"的原始诉求）；5 覆盖"我自己 `.zshrc` 里配好的直接用"；6 是项目级配置生效的前提。
+1–4 覆盖"配置里直接写值"，5 覆盖"`.zshrc` 里配好的直接用"，两者合起来就是原始诉求的完整闭环，全程不需要项目级配置。
+
+**二期（真实需求出现再做）**：项目级 `env` / `envFromShell` 生效 + 信任门禁（复用 hooks 的信任库与 digest 口径），那时把 `config_project_env_blocked` 的依据从"不支持"改为"待信任"，并单独起一轮验收。
 
 ## 10. 已知限制与风险
 
-- 项目层信任的摘要口径变更会让**已有**的 hooks 信任记录失效一次（需要重新 trust），属预期代价，需在改动说明里写清。
+- 项目级配置本期不生效：仓库自带的 `.zcode/config.json` 里写 env 会被剥离，而诊断只落日志（现有 config diagnostics 无 UI 面），用户在命令行可能看不到解释。若确实需要"每个仓库一份 env"，走二期（§3.4），那期要接受"已有 hooks 授权记录失效一次"的代价。
 - 配置 env 只在会话/runtime 启动时读取：改完配置要新开会话，不是当前会话内即时生效。
 - `envFromShell` 开启后，agent 进程首次装配会同步跑一次 login shell（`execFileSync`，超时上限 4s，`runtimeLoginShellEnvCapture.ts:236-240`）。慢 `.zshrc`（nvm/conda/direnv）会拖慢启动：默认关闭该特性即零成本，开启后建议记时并留 `debug` 日志；快照抓取失败不阻塞启动。
-- `envFromShell` 是凭据外泄面：`["AWS_*", "GITHUB_*"]` 会把凭据放进仓库可控脚本的环境 → 项目级必须走信任门禁；用户级自担（等同于自己在 shell 里 export）。
-- `PATH` 放行意味着配置可以把工具子进程的命令解析指向任意目录；用户级文件自担，项目级靠信任门禁兜。
+- `envFromShell` 是凭据外泄面：`["AWS_*", "GITHUB_*"]` 会把凭据放进仓库可控脚本的环境 → 本期项目层声明直接剥离，二期的门禁必须覆盖它。
+- `PATH` 放行意味着用户级配置可以把工具子进程的命令解析指向任意目录（用户自担，等同于自己在 shell 里 export）；项目级因不允许生效，不构成仓库侧风险。
 - 只在工具子进程内可见：若某类调用（MCP server、relay、provider 网关）也需要这些变量，不在本设计范围，需单独设计（MCP 已有自己的 `env` 字段，优先复用而不是叠加）。
