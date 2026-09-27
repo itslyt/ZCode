@@ -136,11 +136,22 @@ UI 侧移除 `DesktopTopOverlay` 的 `UpdateStatusButton` 与帮助菜单里的�
 
 后果说清楚：模型**不能自己**进出计划模式了（两个工具就是它唯一的进出手段），但 UI 选择器与 `/plan` 仍能切进去。用户已声明不会选，所以这个组合可接受；真正要彻底去掉模式需要单独立项。
 
-### 8.4 去掉 WebSearch
+### 8.4 WebSearch（恢复）
 
-它不是 ZCode 自己调搜索 API，而是**模型 provider 的原生工具**：`config.ts` 的 `shouldExposeWebSearch` 读 `model.properties.supportsNativeWebSearch`（就是模型配置界面那个“原生联网搜索”复选框）。用户用自己的 provider 且未勾该能力，所以它本来就不在工具面里（实测 `toolNames` 里没有）。
+它不是 ZCode 自己调搜索 API，而是**模型 provider 的原生工具**：`runtime/methods/config.ts` 的
+`shouldExposeWebSearch` 读 `model.properties.supportsNativeWebSearch`（模型配置界面的“原生联网搜索”
+复选框），这是工具面之外的第二道门。
 
-从 `CODING_ONLY_TOOLS` 移除只是让意图显式，行为上无变化；将来换到带原生搜索的 provider 时加回一行即可。
+`cdaffe1` 曾把它从 `CODING_ONLY_TOOLS` 移除（当时用户 provider 未勾该能力，行为上无变化）。
+现恢复：`CODING_ONLY_TOOLS` 重新包含 `WebSearch`，不再由本 fork 的白名单提前拦掉。
+
+**仍生效的门（恢复白名单不等于一定能用）**：
+
+1. `supportsNativeWebSearch === true` 才会出现在请求的 `toolNames` 里；否则注册了也不可见。
+2. `adapters/model/tool-transform.ts` 的 `toAiSdkProviderNativeTool` **目前只编码 `anthropic`**：
+   `openai` / `openai-compatible` 会抛 `Provider API kind ... does not encode provider-native WebSearch`。
+   所以走 OpenAI 兼容端点的 provider（含本机 `openai-responses` 网关）能看到工具、调用即报错；
+   要让这条链路真跑通，需在适配器里补 OpenAI Responses 的 provider-native web search 编码。
 
 ### 8.5 `/plan` 与 `/goal`
 
@@ -149,7 +160,7 @@ UI 侧移除 `DesktopTopOverlay` 的 `UpdateStatusButton` 与帮助菜单里的�
 
 ### 验收
 
-1. 真实请求的 `toolNames` 含 `Glob`/`Grep`，不含 `EnterPlanMode`/`ExitPlanMode`/`WebSearch`。
+1. 真实请求的 `toolNames` 含 `Glob`/`Grep`，不含 `EnterPlanMode`/`ExitPlanMode`；`WebSearch` 是否出现取决于当前模型的 `supportsNativeWebSearch`。
 2. 工具定义 token 数下降（预期 7 742 → 约 5 965，−23%）。
 3. `Explore` 子代理仍能搜索（它的两套工具面都含 Glob/Grep）。
 4. 不改 `builtInTools` 代码（工具定义保留，随时可恢复）。

@@ -86,6 +86,9 @@ const CODING_ONLY_TOOLS = [
   "TodoRead",
   "TodoWrite",
   "WebFetch",
+  // WebSearch 是 provider 原生工具，是否真出现仍由 shouldExposeWebSearch 按
+  // model.properties.supportsNativeWebSearch 二次门控；这里只表示本 fork 的白名单不再提前拦掉它。
+  "WebSearch",
   "Skill",
   "Agent",
   "SendMessage",
