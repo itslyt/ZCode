@@ -491,3 +491,188 @@ test("formatAnchorRegion 渲染带锚点的区域并回报哈希", () => {
       .map((line) => hashLineContent(line)),
   );
 });
+
+// -----------------------------------------------
+// 裸哈希：模型只给 4 位哈希、省掉行号
+// -----------------------------------------------
+
+/** 取第 line 行的哈希（不带行号），即裸哈希写法。 */
+function bareAt(content: string, line: number): string {
+  return hashLineContent(splitLines(content)[line - 1]!);
+}
+
+test("裸哈希在已读集合里且当前文件唯一命中时解析成功", () => {
+  const resolved = resolveAnchorEdits(CONTENT, servedAll(CONTENT), [
+    { removeFrom: bareAt(CONTENT, 3), removeTo: bareAt(CONTENT, 3), replacementText: "  return msg.trim();" },
+  ]);
+
+  assert.equal(resolved.status, "resolved");
+  if (resolved.status === "resolved") {
+    // 单行编辑：start === end
+    assert.equal(resolved.edits[0]!.start, resolved.edits[0]!.end);
+    assert.equal(resolved.edits[0]!.start, 2);
+  }
+});
+
+test("裸哈希容忍大小写与易混字符，归一化后仍能解析", () => {
+  const bare = bareAt(CONTENT, 3).toLowerCase();
+  const resolved = resolveAnchorEdits(CONTENT, servedAll(CONTENT), [
+    { removeFrom: bare, removeTo: bare, replacementText: "x" },
+  ]);
+
+  assert.equal(resolved.status, "resolved");
+});
+
+test("裸哈希多处命中时按 ambiguous 拒绝，绝不错行", () => {
+  const duplicated = ["same line", "other", "same line"].join("\n");
+  const hashes = computeLineHashes(splitLines(duplicated));
+
+  const resolved = resolveAnchorEdits(duplicated, new Set(hashes), [
+    { removeFrom: hashes[0]!, removeTo: hashes[0]!, replacementText: "x" },
+  ]);
+
+  assert.equal(resolved.status, "failed");
+  if (resolved.status === "failed") {
+    assert.equal(resolved.reason, "ambiguous");
+    assert.equal(resolved.matchCount, 2);
+  }
+});
+
+test("裸哈希零命中但在已读集合里时判 stale，而不是 unserved", () => {
+  const served = servedAll(CONTENT);
+  // 内容已换掉，但哈希确实是模型看过的。
+  const resolved = resolveAnchorEdits("totally\ndifferent\ncontent\n", served, [
+    { removeFrom: bareAt(CONTENT, 3), removeTo: bareAt(CONTENT, 3), replacementText: "x" },
+  ]);
+
+  assert.equal(resolved.status, "failed");
+  if (resolved.status === "failed") assert.equal(resolved.reason, "stale");
+});
+
+test("裸哈希零命中且不在已读集合里时判 unserved", () => {
+  const resolved = resolveAnchorEdits(CONTENT, new Set(), [
+    { removeFrom: bareAt(CONTENT, 1), removeTo: bareAt(CONTENT, 1), replacementText: "x" },
+  ]);
+
+  assert.equal(resolved.status, "failed");
+  if (resolved.status === "failed") assert.equal(resolved.reason, "unserved");
+});
+
+test("垃圾输入仍然判 malformed，不因裸哈希支持而退化成 unserved", () => {
+  const served = servedAll(CONTENT);
+
+  for (const bad of ["abc", "not-an-anchor", ":AB3F", "AB3", "AB3FF"]) {
+    const resolved = resolveAnchorEdits(CONTENT, served, [
+      { removeFrom: bad, removeTo: bad, replacementText: "x" },
+    ]);
+    assert.equal(resolved.status, "failed", `input ${JSON.stringify(bad)}`);
+    if (resolved.status === "failed") {
+      assert.equal(resolved.reason, "malformed_anchor", `input ${JSON.stringify(bad)}`);
+    }
+  }
+});
+
+test("显式锚点的解析行为不受裸哈希支持影响", () => {
+  const served = servedAll(CONTENT);
+  const explicit = resolveAnchorEdits(CONTENT, served, [
+    { removeFrom: anchorAt(CONTENT, 2), removeTo: anchorAt(CONTENT, 3), replacementText: "x" },
+  ]);
+
+  assert.equal(explicit.status, "resolved");
+  if (explicit.status === "resolved") {
+    assert.equal(explicit.edits[0]!.start, 1);
+    assert.equal(explicit.edits[0]!.end, 2);
+    assert.equal(explicit.edits[0]!.shifted, false);
+  }
+});
+test("remove_to 留空时按单行处理（历史行为，不得退化为拒绝）", () => {
+  const before = splitLines(CONTENT);
+  const result = editOnce(CONTENT, servedAll(CONTENT), [
+    { removeFrom: anchorAt(CONTENT, 2), removeTo: "", replacementText: '  const msg = "yo";' },
+  ]);
+  const after = splitLines(result.content);
+
+  assert.equal(after.length, before.length);
+  assert.equal(after[1], '  const msg = "yo";');
+  // 相邻行必须原样保留。
+  assert.equal(after[0], before[0]);
+  assert.equal(after[2], before[2]);
+});
+
+test("remove_to 留空时 stale 哈希仍然被拒绝", () => {
+  const served = servedAll(CONTENT);
+  const resolved = resolveAnchorEdits("totally\ndifferent\n", served, [
+    { removeFrom: anchorAt(CONTENT, 3), removeTo: "", replacementText: "x" },
+  ]);
+
+  assert.equal(resolved.status, "failed");
+  if (resolved.status === "failed") assert.equal(resolved.reason, "stale");
+});
+
+test("给出 remove_to 的多行区间行为与改动前一致", () => {
+  const result = editOnce(CONTENT, servedAll(CONTENT), [
+    { removeFrom: anchorAt(CONTENT, 2), removeTo: anchorAt(CONTENT, 3), replacementText: "  return 1;" },
+  ]);
+
+  assert.match(result.content, /function greet\(name\) \{\n  return 1;\n\}/);
+});
+
+// -----------------------------------------------
+// unserved 也 reject-and-serve
+// -----------------------------------------------
+
+test("带行号的 unserved 拒绝时回传该行区域的当前锚点", () => {
+  const failure = resolveAnchorEdits(CONTENT, new Set(), [
+    { removeFrom: anchorAt(CONTENT, 3), replacementText: "x" },
+  ]);
+  assert.equal(failure.status, "failed");
+  if (failure.status !== "failed") throw new Error("unreachable");
+  assert.equal(failure.reason, "unserved");
+
+  const message = createAnchorFailureMessage({ content: CONTENT, failure, total: 1 });
+  assert.match(message.text, /Current anchors \(lines /);
+  assert.ok(message.servedHashes.length > 0);
+});
+
+test("unserved 回传的锚点可以直接拿来重发（不会再次被拒）", () => {
+  const empty = new Set<string>();
+  const first = resolveAnchorEdits(CONTENT, empty, [
+    { removeFrom: anchorAt(CONTENT, 3), removeTo: anchorAt(CONTENT, 3), replacementText: "  return msg.trim();" },
+  ]);
+  assert.equal(first.status, "failed");
+  if (first.status !== "failed") throw new Error("unreachable");
+
+  const message = createAnchorFailureMessage({ content: CONTENT, failure: first, total: 1 });
+  // 与 handler 的合流逻辑一致：回传的锚点写入 served。
+  const served = withServed(empty, message.servedHashes);
+
+  const retry = resolveAnchorEdits(CONTENT, served, [
+    { removeFrom: anchorAt(CONTENT, 3), removeTo: anchorAt(CONTENT, 3), replacementText: "  return msg.trim();" },
+  ]);
+  assert.equal(retry.status, "resolved");
+});
+
+test("零命中且无从指路时不渲染区域", () => {
+  const failure = resolveAnchorEdits(CONTENT, new Set(), [
+    { removeFrom: "ZZZZ", removeTo: "ZZZZ", replacementText: "x" },
+  ]);
+  assert.equal(failure.status, "failed");
+  if (failure.status !== "failed") throw new Error("unreachable");
+  assert.equal(failure.reason, "unserved");
+  assert.equal(failure.hintLine, 0);
+
+  const message = createAnchorFailureMessage({ content: CONTENT, failure, total: 1 });
+  assert.doesNotMatch(message.text, /Current anchors/);
+  assert.equal(message.servedHashes.length, 0);
+});
+
+test("显式给出 remove_to 时首尾颠倒仍被拒绝（reversed 护栏）", () => {
+  const served = servedAll(CONTENT);
+  const resolved = resolveAnchorEdits(CONTENT, served, [
+    { removeFrom: anchorAt(CONTENT, 3), removeTo: anchorAt(CONTENT, 1), replacementText: "x" },
+  ]);
+
+  assert.equal(resolved.status, "failed");
+  if (resolved.status === "failed") assert.equal(resolved.reason, "reversed_range");
+});
+

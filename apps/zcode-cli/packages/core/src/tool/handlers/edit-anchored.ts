@@ -65,11 +65,12 @@ const EDIT_ANCHORED_PROVIDER_DESCRIPTION = [
   "Read prefixes every line with an anchor `N:HASH│`. Pass those anchors here instead of retyping the old text:",
   "",
   "```json",
-  '{ "file_path": "/abs/path/file.ts", "edits": [{ "remove_from": "22:AB3F", "remove_to": "24:XY12", "replacement_text": "new content" }] }',
+  '{ "file_path": "/abs/path/file.ts", "edits": [{ "remove_from": "22:AB3F", "remove_to": "22:AB3F", "replacement_text": "new content" }] }',
   "```",
   "",
-  "- `remove_from` / `remove_to` are the first and last line of the range; use the same anchor for a single line.",
-  "- `replacement_text` replaces the whole range; use `\"\"` to delete it.",
+  "- `remove_from`/`remove_to` bound the range to replace; for a single line pass the same anchor twice.",
+  "- The 4-character hash alone (`AB3F`) is accepted when it uniquely identifies a line — no line number needed.",
+  "- `replacement_text` replaces the range; use `\"\"` to delete it.",
   "- Every entry is resolved against the file's original content, so entries never displace each other. All-or-nothing.",
   "- Anchors stay valid after edits elsewhere in the file: if line numbers moved, the anchor's hash re-locates it. The result returns fresh anchors for the changed region.",
   "- Only lines you have already read can be edited. If an anchor is rejected, the error includes the region's current anchors.",
@@ -151,7 +152,7 @@ const editAnchoredHandler: ToolHandler = async (input, context) => {
     // 不并进去的话，模型照抄这些锚点重发会被判 unserved——reject-and-serve 变死循环。
     //
     // 只并 served，不碰门禁字段：拒绝是零副作用的，模型并没有因此读到更多内容。
-    // unserved / malformed / reversed 不渲染任何内容，连 served 也不用并。
+    // unserved 现在也会渲染「该行附近」的当前锚点，所以这三类都要并。
     if (failure.servedHashes.length > 0) {
       mergeServedAnchorsAfterRejection({
         context,
@@ -291,10 +292,9 @@ function mergeServedAnchorsAfterRejection(input: {
   // 没有任何读状态时，served 需要有地方放。建一条保守条目：门禁字段一律按「没读全」处理，
   // 不提供任何 Edit/Write 可用的依据。
   //
-  // 当前调用条件下这个分支**不可达**：进入本函数要求 `servedHashes.length > 0`，
-  // 而渲染非空只发生在 stale / ambiguous；这两个 reason 的前提是锚点哈希已经在 served
-  // 集合里（否则是 unserved、不渲染任何东西），served 又只能来自同路径的读状态条目，
-  // 所以 `findLatestReadFileState` 必然有值。
+  // 进入本函数要求 `servedHashes.length > 0`，而渲染非空只发生在
+  // stale / ambiguous / 带行号的 unserved；三者都要求同路径已有读状态条目
+  // （unserved 的语义就是「不在已读集合里」），所以正常应当有值。
   //
   // 保留而不是删掉：这是本函数对「served 必须有地方放」这个契约的完整行为，
   // 删掉会让未来其它调用方在本状态下静默丢掉 served（表现为模型重发撞 unserved）。

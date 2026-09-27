@@ -16,10 +16,17 @@ import { EditDiffHunkSchema, type DiffHunk } from "./edit.js";
 import { toToolJsonSchema } from "./json-schema.js";
 import { ToolExecutionTelemetrySchema } from "./performance.js";
 
-/** 锚点形如 `22:AB3F`：行号 + 4 字符内容哈希。 */
+/**
+ * 锚点形如 `22:AB3F`：行号 + 4 字符内容哈希。
+ *
+ * 也接受只给 4 位哈希的裸形式（`AB3F`）——模型常省掉行号。裸哈希只在当前文件里
+ * 唯一命中、或该哈希确实在已读集合里时才能定位；否则照常 unserved / stale / ambiguous 拒绝。
+ */
 const AnchorString = z
   .string()
-  .describe("Line anchor copied from a Read result, e.g. `22:AB3F` (line number, colon, hash)");
+  .describe(
+    "Line anchor copied from a Read result, e.g. `22:AB3F`. The bare 4-character hash (`AB3F`) is also accepted when it uniquely identifies a line.",
+  );
 
 export const EditAnchoredInputSchema = z.object({
   /**

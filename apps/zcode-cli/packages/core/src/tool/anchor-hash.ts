@@ -97,6 +97,42 @@ export function parseAnchor(raw: string): ParsedAnchor | null {
   return { line, hash };
 }
 
+/**
+ * 锚点串的解析结果。
+ *
+ * `hash-only` 是模型常见的省略写法（只给 4 位哈希、不写行号）。它必须与 `malformed`
+ * 区分开：前者是合法哈希、能靠文件内唯一匹配定位，后者是真正的垃圾输入。
+ * 混为一谈会把「你少写了行号」报成「你的锚点是垃圾」。
+ */
+export type ParsedAnchorToken =
+  | { kind: "explicit"; line: number; hash: string }
+  | { kind: "hash-only"; hash: string }
+  | { kind: "malformed" };
+
+/**
+ * 解析锚点串，兼容 `22:AB3F` 与裸哈希 `AB3F`。
+ *
+ * 裸哈希的定位需要知道文件当前内容，由调用方完成；这里只做格式判定。
+ */
+export function parseAnchorToken(raw: string): ParsedAnchorToken {
+  const trimmed = raw.trim();
+  if (trimmed === "") return { kind: "malformed" };
+
+  const separatorIndex = trimmed.indexOf(":");
+  if (separatorIndex === 0) return { kind: "malformed" };
+  if (separatorIndex > 0) {
+    const line = Number.parseInt(trimmed.slice(0, separatorIndex), 10);
+    if (!Number.isInteger(line) || line < 1) return { kind: "malformed" };
+    const hash = normalizeAnchorHash(trimmed.slice(separatorIndex + 1));
+    if (hash === null) return { kind: "malformed" };
+    return { kind: "explicit", line, hash };
+  }
+
+  const hash = normalizeAnchorHash(trimmed);
+  if (hash === null) return { kind: "malformed" };
+  return { kind: "hash-only", hash };
+}
+
 /** 渲染 Read 输出的行前缀：`22:AB3F│`。 */
 export function formatAnchorPrefix(line: number, hash: string): string {
   return `${line}:${hash}${ANCHOR_SEPARATOR}`;

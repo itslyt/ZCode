@@ -4,7 +4,7 @@
 //
 // 解析优先级（每一步都宁可拒绝也不猜）：
 //
-// 1. 锚点必须语法合法（`行号:哈希`）；
+// 1. 锚点必须语法合法（`行号:哈希`，或唯一可定位的裸哈希）；
 // 2. 哈希必须出现在 served 集合里——没给模型看过的行不允许编辑；
 // 3. 行号处的哈希对得上 → 直接用（快路径，没有位移）；
 // 4. 对不上 → 在全文里按哈希找，**唯一命中**才移动（自愈合，模型不必重新定位）；
@@ -18,9 +18,9 @@ import {
   computeLineHashes,
   formatAnchorPrefix,
   hashLineContent,
-  parseAnchor,
+  parseAnchorToken,
   splitLines,
-  type ParsedAnchor,
+  type ParsedAnchorToken,
 } from "./anchor-hash.js";
 
 export interface AnchorEditRequest {
@@ -67,61 +67,63 @@ interface EndpointResolution {
 }
 
 function resolveEndpoint(input: {
-  anchor: ParsedAnchor;
+  token: ParsedAnchorToken;
   rawAnchor: string;
   editIndex: number;
   lineHashes: readonly string[];
   servedHashes: ReadonlySet<string>;
 }): EndpointResolution | AnchorResolveFailure {
-  const { anchor, rawAnchor, editIndex, lineHashes, servedHashes } = input;
-
-  if (!servedHashes.has(anchor.hash)) {
+  const { token, rawAnchor, editIndex, lineHashes, servedHashes } = input;
+  if (token.kind === "malformed") {
     return {
       status: "failed",
       editIndex,
-      reason: "unserved",
+      reason: "malformed_anchor",
       anchor: rawAnchor,
       matchCount: 0,
-      hintLine: anchor.line,
+      hintLine: 0,
     };
-  }
-
-  const expectedIndex = anchor.line - 1;
-  if (expectedIndex >= 0 && expectedIndex < lineHashes.length) {
-    if (lineHashes[expectedIndex] === anchor.hash) {
-      return { index: expectedIndex, shifted: false };
-    }
   }
 
   const candidates: number[] = [];
   for (let index = 0; index < lineHashes.length; index += 1) {
-    if (lineHashes[index] === anchor.hash) candidates.push(index);
+    if (lineHashes[index] === token.hash) candidates.push(index);
   }
 
-  if (candidates.length === 0) {
-    return {
-      status: "failed",
-      editIndex,
-      reason: "stale",
-      anchor: rawAnchor,
-      matchCount: 0,
-      hintLine: anchor.line,
-    };
-  }
-
-  if (candidates.length === 1) {
-    return { index: candidates[0]!, shifted: true };
-  }
-
-  // 多处命中：行号本身没对上，无法判断指向哪一处。绝不猜。
-  return {
+  // 显式锚点用模型给的行号做提示；裸哈希没有行号，只能拿首个候选行。
+  // 零候选时留 0，表示「无从指路」——错误信息据此决定是否回传区域。
+  const hintLine =
+    token.kind === "explicit" ? token.line : candidates.length > 0 ? candidates[0]! + 1 : 0;
+  const fail = (reason: AnchorFailureReason, matchCount: number): AnchorResolveFailure => ({
     status: "failed",
     editIndex,
-    reason: "ambiguous",
+    reason,
     anchor: rawAnchor,
-    matchCount: candidates.length,
-    hintLine: anchor.line,
-  };
+    matchCount,
+    hintLine,
+  });
+
+  if (!servedHashes.has(token.hash)) return fail("unserved", 0);
+
+  if (token.kind === "explicit") {
+    const expectedIndex = token.line - 1;
+    if (
+      expectedIndex >= 0 &&
+      expectedIndex < lineHashes.length &&
+      lineHashes[expectedIndex] === token.hash
+    ) {
+      return { index: expectedIndex, shifted: false };
+    }
+  }
+
+  if (candidates.length === 0) return fail("stale", 0);
+  // 唯一候选才移动。裸哈希本来就没有行号，不存在「位移」。
+  if (candidates.length === 1) {
+    return { index: candidates[0]!, shifted: token.kind === "explicit" };
+  }
+
+  // 多处命中：无法判断指向哪一处。绝不猜。
+  return fail("ambiguous", candidates.length);
 }
 
 export function resolveAnchorEdits(
@@ -136,8 +138,8 @@ export function resolveAnchorEdits(
   for (let editIndex = 0; editIndex < requests.length; editIndex += 1) {
     const request = requests[editIndex]!;
 
-    const from = parseAnchor(request.removeFrom);
-    if (from === null) {
+    const from = parseAnchorToken(request.removeFrom);
+    if (from.kind === "malformed") {
       return {
         status: "failed",
         editIndex,
@@ -147,20 +149,25 @@ export function resolveAnchorEdits(
         hintLine: 0,
       };
     }
-    const to = parseAnchor(request.removeTo);
-    if (to === null) {
+
+    // 首尾写同一个锚点、或 remove_to 留空，都表示单行编辑。留空是模型常见的偷懒写法，
+    // 历史上就当作单行处理；即便 schema 已要求该字段，也不要把这种写法改成拒绝。
+    const rawEnd = request.removeTo ?? "";
+    const singleLine = rawEnd.trim() === "" || rawEnd === request.removeFrom;
+    const to = singleLine ? null : parseAnchorToken(rawEnd);
+    if (to !== null && to.kind === "malformed") {
       return {
         status: "failed",
         editIndex,
         reason: "malformed_anchor",
-        anchor: request.removeTo,
+        anchor: rawEnd,
         matchCount: 0,
-        hintLine: from.line,
+        hintLine: from.kind === "explicit" ? from.line : 0,
       };
     }
 
     const startResolution = resolveEndpoint({
-      anchor: from,
+      token: from,
       rawAnchor: request.removeFrom,
       editIndex,
       lineHashes,
@@ -168,13 +175,16 @@ export function resolveAnchorEdits(
     });
     if ("status" in startResolution) return startResolution;
 
-    const endResolution = resolveEndpoint({
-      anchor: to,
-      rawAnchor: request.removeTo,
-      editIndex,
-      lineHashes,
-      servedHashes,
-    });
+    const endResolution: EndpointResolution | AnchorResolveFailure =
+      singleLine
+        ? { index: startResolution.index, shifted: false }
+        : resolveEndpoint({
+            token: to!,
+            rawAnchor: request.removeTo,
+            editIndex,
+            lineHashes,
+            servedHashes,
+          });
     if ("status" in endResolution) return endResolution;
 
     if (startResolution.index > endResolution.index) {
@@ -184,7 +194,7 @@ export function resolveAnchorEdits(
         reason: "reversed_range",
         anchor: "",
         matchCount: 0,
-        hintLine: from.line,
+        hintLine: from.kind === "explicit" ? from.line : startResolution.index + 1,
       };
     }
 
@@ -384,12 +394,27 @@ export function createAnchorFailureMessage(input: {
         "No edits were applied.",
       ]);
 
-    case "unserved":
-      return plain([
-        `${position} references anchor ${failure.anchor}, which was never shown to you for this file.`,
-        "Read the region first, then copy the anchor from that Read result.",
-        "No edits were applied.",
-      ]);
+    case "unserved": {
+      // 拒绝回传区域，模型这一步就能改对，不必先 Read 再重发。
+      // 没有行号可用时（裸哈希零命中）无从指路，退回纯文本，不猜区域。
+      if (failure.hintLine < 1) {
+        return plain([
+          `${position} references anchor ${failure.anchor}, which was never shown to you for this file.`,
+          "Read the region first, then copy the anchor from that Read result.",
+          "No edits were applied.",
+        ]);
+      }
+      const region = formatAnchorRegion(content, hintLine);
+      return {
+        text: [
+          `${position} references anchor ${failure.anchor}, which was never shown to you for this file.`,
+          "The current anchors around that line are below — copy one verbatim and resend.",
+          "No edits were applied.",
+          region.text,
+        ].join("\n"),
+        servedHashes: region.servedHashes,
+      };
+    }
 
     case "ambiguous": {
       // 同样要 serve：只叫模型“再读一次”等于把 reject-and-serve 省下的往返又还回去。
