@@ -62,12 +62,14 @@ const TOOL_NAME = "EditAnchored";
 const EDIT_ANCHORED_PROVIDER_DESCRIPTION = [
   "Replace line ranges in a file addressed by the anchors that Read prints. This is the default way to edit a file you have already read.",
   "",
-  "Read prefixes every line with an anchor `N:HASH│`. Pass those anchors here instead of retyping the old text:",
+  "Pass those anchors here instead of retyping the old text:",
   "",
   "```json",
   '{ "file_path": "/abs/path/file.ts", "edits": [{ "remove_from": "22:AB3F", "remove_to": "22:AB3F", "replacement_text": "new content" }] }',
   "```",
   "",
+  // 锚点格式（`N:HASH│` 的含义）由 Read 的描述定义，这里不再重述一句；
+  // 保留的是本工具独有的用法与失败语义。见 specs/tool-definition-slimming.md §3.8。
   "- `remove_from`/`remove_to` bound the range to replace; for a single line pass the same anchor twice.",
   "- The 4-character hash alone (`AB3F`) is accepted when it uniquely identifies a line — no line number needed.",
   "- `replacement_text` replaces the range; use `\"\"` to delete it.",

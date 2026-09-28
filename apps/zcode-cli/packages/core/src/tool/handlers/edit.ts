@@ -57,13 +57,22 @@ import {
   workspaceKind,
 } from "./tool-perf.js";
 
+// 每条只写「模型需要知道、且代码里没有」的事：
+//   - 唯一性错误（NON_UNIQUE_OLD_STRING_MESSAGE）不复述——它在调用失败时把更准的消息
+//     直接回给模型。
+//   - 锚点前缀不用手剥：findEditMatch 的 line_number_prefix_stripped 策略已自动剥
+//     `N:HASH│` 与旧的 `N\t`。旧文案让模型「strip the line number + tab」既过时
+//     （现在是 N:HASH│）又多余。见 specs/tool-definition-slimming.md §3.7。
+//   - 「未读则拒绝」保留：它是**事前**指引，能避免一次失败的往返；错误消息只能事后补救。
 const EDIT_PROVIDER_DESCRIPTION = [
   "Performs exact string replacement in a file.",
   "",
   "- You must Read the file in this conversation before editing, or the call will fail.",
-  "- `old_string` must match the file exactly, including indentation, and be unique — the edit fails otherwise. Strip the Read line prefix (line number + tab) before matching.",
+  "- `old_string` must match the file exactly, including indentation, and be unique — the edit fails otherwise.",
   "- `replace_all: true` replaces every occurrence instead.",
   "- `edits: [{old_string, new_string}]` applies several edits to one file in a single atomic call. Every entry is located against the file's ORIGINAL content, so entries never displace each other; if any entry fails, nothing is written. Prefer it over repeated single-edit calls.",
+  // 跨工具导航留在工具描述里：子代理有自己的 system prompt（subagent/general-purpose.ts），
+  // 拿不到 identity 段，只能从这里学「什么时候该用另一个工具」。
   "- Prefer `EditAnchored` for files you have already read; this tool is for target lines that were never shown to you.",
 ].join("\n");
 const NON_UNIQUE_OLD_STRING_MESSAGE =

@@ -29,14 +29,15 @@ const ASK_USER_QUESTION_DESCRIPTION =
     "",
     "Reserve this for decisions where the user's answer changes what you do next — not for choices with a conventional default or facts you can verify in the codebase yourself. In those cases pick the obvious option, mention it in your response, and proceed.",
     "",
-    "Preview feature:",
-    "Use the optional `preview` field on options when presenting concrete artifacts that users need to visually compare:",
-    "- ASCII mockups of UI layouts or components",
-    "- Code snippets showing different implementations",
-    "- Diagram variations",
-    "- Configuration examples",
-    "",
-    "Preview content is rendered as markdown in a monospace box. Multi-line text with newlines is supported. When any option has a preview, the UI switches to a side-by-side layout with a vertical option list on the left and preview on the right. Do not use previews for simple preference questions where labels and descriptions suffice. Note: previews are only supported for single-select questions (not multiSelect).",
+    // 原来这里有一整段 686 字符的 "Preview feature"，讲选项可用 `preview` 渲染成
+    // 「并排布局 / monospace 框 / ASCII mockup」。逐层查过消费链后删掉：
+    //   - Desktop 的 `ZCodeElicitationOption` 类型没有 preview 字段，
+    //     `zcodeTaskServiceAdapter` 映射 option 时只取 value/label/description，preview 被丢；
+    //   - `packages/ui/src/ElicitationDialog.tsx` 零处渲染 preview；
+    //   - TUI 只把 preview 原文塞进 `annotation` 回传给模型，并不渲染。
+    // 也就是说那段承诺的 UI 形态在任何客户端都不存在，只会把模型引向一个不存在的交互。
+    // `preview` 字段本身保留（TUI 的回传链路仍读它，见 app-question-state.ts），
+    // 只是不再向模型宣传；详见 specs/tool-definition-slimming.md §3.6。
   ].join("\n") + "\n";
 
 const askUserQuestionHandler: ToolHandler = async (input, context) => {

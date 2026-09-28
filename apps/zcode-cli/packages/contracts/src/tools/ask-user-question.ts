@@ -26,11 +26,16 @@ export const AskUserQuestionOptionSchema = z
       .describe(
         "Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.",
       ),
+    // 描述只说「这个字段是什么」，不再承诺渲染形态：实测没有任何客户端渲染它
+    // （Desktop 的 ZCodeElicitationOption 无此字段，映射时被丢；TUI 只把原文回传）。
+    // 字段本身必须保留——TUI 的回传链路仍读它。校验规则（HTML 片段、禁 script/style）
+    // 不变，因为那些是**入参约束**，与是否渲染无关。
+    // 见 specs/tool-definition-slimming.md §3.6。
     preview: z
       .string()
       .optional()
       .describe(
-        "Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.",
+        "Optional content describing what selecting this option means, for options where a label and a one-line description are not enough. Plain text or an HTML fragment.",
       ),
   })
   .strict()

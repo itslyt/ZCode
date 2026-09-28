@@ -154,3 +154,46 @@ test("Edit 不再重复 EditAnchored 的完整回退说明", () => {
   assert.ok(editDescription.includes("EditAnchored"), "但仍需保留一句指向 EditAnchored");
   assert.ok(anchoredDescription.includes("anchors that Read prints"));
 });
+
+// 第二轮：删掉的是**失实**与**纯重复**，不是「短一点好」。下面每条都钉住一个具体机制，
+// 防止将来有人凭「描述太长」再把它改回去或删掉仍有用的那条。
+
+test("AskUserQuestion 不再宣传任何客户端都不存在的并排预览", () => {
+  const description = askUserQuestionToolEntry.metadata.description ?? "";
+  for (const phantom of ["side-by-side", "monospace box", "ASCII mockup", "Preview feature"]) {
+    assert.ok(!description.includes(phantom), `不该承诺不存在的 UI：${phantom}`);
+  }
+  // preview 字段本身保留（TUI 回传链路仍读它），所以描述里提一句它的用途是对的，
+  // 但不能再描述渲染形态。这里只钉「没有渲染承诺」，不钉字段是否被提及。
+});
+
+test("Edit 不再教模型手工剥一个已经自动被剥的前缀", () => {
+  const description = editToolEntry.metadata.description ?? "";
+  assert.ok(
+    !description.includes("Strip the Read line prefix"),
+    "findEditMatch 已自动剥 N:HASH│ 与旧 N\\t 前缀，手工剥的指引既过时又多余",
+  );
+  // 未读拒绝是**事前**指引，能省下一次失败往返，必须留着。
+  assert.ok(
+    description.includes("Read the file in this conversation before editing"),
+    "事前的未读指引应保留（错误消息只能事后补救）",
+  );
+});
+
+test("Read 不再引用已被移除的未变更短路", () => {
+  const description = readToolEntry.metadata.description ?? "";
+  assert.ok(
+    !description.includes("Do NOT re-read a file you just edited"),
+    "该短路按 specs/read-unchanged-stub.md 已移除，Read 一律返回内容",
+  );
+  // 锚点是 Read 的产出，这条必须留在 Read 里（EditAnchored 与模型都依赖它）。
+  assert.ok(description.includes("N:HASH"), "锚点格式的定义属于 Read");
+});
+
+test("identity 不再复述工具描述已有的编辑细节", () => {
+  const identity = buildIdentitySection().content;
+  assert.ok(identity.includes("EditAnchored"), "仍需保留「什么时候用哪个工具」的判断");
+  for (const detail of ["N:HASH", ".ipynb", "stale-anchor"]) {
+    assert.ok(!identity.includes(detail), `编辑细节应只在工具描述里说一次：${detail}`);
+  }
+});

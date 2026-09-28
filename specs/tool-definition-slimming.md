@@ -123,6 +123,60 @@ handler 只读 `questions`（`AskUserQuestionAnsweredInputSchema` 要求 `answer
 修法：描述门与注册门用**同一个判据**。`createAgentToolEntry` 增加显式入参
 （由调用方把「工具面里到底有没有 CreateWorkflow」传进来），不再只看 `dynamicWorkflowEnabled`。
 
+### 3.6 第二轮：删掉「描述不存在的东西」
+
+第一轮之后又过了一遍，发现更值得处理的一类不是「长」，是**失实**。判定标准：
+描述里承诺的机制/UI，在消费链末端是否存在。
+
+**AskUserQuestion 的 Preview 段（686 字符）**。原文承诺选项可带 `preview`，渲染成
+「并排布局 / monospace 框 / ASCII mockup」。逐层查消费链：
+
+| 环节                                                        | 事实                                     |
+| ----------------------------------------------------------- | ---------------------------------------- |
+| `ZCodeElicitationOption` 类型（`zcode-task-types-core.ts`） | **无 `preview` 字段**                    |
+| `zcodeTaskServiceAdapter` 映射 option                       | 只取 `value`/`label`/`description`，丢弃 |
+| `packages/ui/src/ElicitationDialog.tsx`                     | 零处渲染；option 渲染进 `<button>`       |
+| TUI `app-question-panel.tsx`                                | 只渲染 `label`/`description`             |
+
+唯一读 `preview` 的是 TUI 的 `app-question-state.ts:343`，它把原文塞进 `annotation`
+**回传给模型**——不是渲染。也就是那段承诺的 UI 形态在任何客户端都不存在。
+
+处置：删描述段；**保留 `preview` 字段本身**（TUI 回传链路仍读它），只把字段描述从
+「rendered when this option is focused」改成不承诺渲染的说法。字段上的 HTML 校验规则
+（片段、禁 script/style）保留——那是**入参约束**，与是否渲染无关。
+
+### 3.7 第二轮：删掉「描述已被移除的机制」
+
+**Read 的「Do NOT re-read a file you just edited to verify」（110 字符）**。
+按 `specs/read-unchanged-stub.md`，未变更短路（`file_unchanged` → "Wasted call"）**已被删除**：
+`grep` 全仓库确认 `file_unchanged` 已无生产者，Read 一律返回内容。而编辑成功的结果本身带
+`"file state is current in your context — no need to Read it back"`（`EDIT_FRESHNESS_SUFFIX`）。
+留着这条等于让模型照一个不存在的机制规划行为。
+
+**Edit 的「Strip the Read line prefix (line number + tab)」（部分字符）**。
+`findEditMatch` 的 `line_number_prefix_stripped` 策略**已自动剥**前缀，且同时认
+`N:HASH│` 与旧的 `N\t`（`anchor-strip.test.ts` 两条用例钉着）。旧文案既过时（现在的格式是
+`N:HASH│`，不是 tab）又多余。
+
+同时**保留**「You must Read ... before editing」：它是**事前**指引，能省下一次失败往返；
+错误消息只能事后补救。这是本轮区分「冗余」与「有用冗余」的判据。
+
+### 3.8 第二轮：编辑细节收敛到工具描述
+
+identity 段的「Editing files」原为 642 字符，复述了锚点格式、`.ipynb`/binary 回退、
+stale-anchor 重试、批次纪律。这些细节**必须留在工具描述**：子代理有自己的 system prompt
+（`subagent/general-purpose.ts`、`subagent/explore.ts`），**拿不到 identity 段**，只能从工具
+描述学。所以方向是反向的——identity 只留「什么时候用哪个工具」这个判断，细节归工具。
+
+- identity：642 → 156 字符（只留 EditAnchored/Edit 的选择判断）。
+- EditAnchored：`Read prefixes every line with an anchor...` 一句删除（锚点格式由 Read 定义），
+  但**恢复**保留 `Only lines you have already read can be edited`——它是事前指引。
+- Edit：跨工具指針 `Prefer EditAnchored...` **保留**（子代理需要它做导航）。
+
+另外 identity 里「Never mix a deletion or insertion with an edit below it in one batch」也删了：
+`edit-batch.ts` 已把所有编辑钉在**原文偏移**上再倒序应用，批内无顺序耦合，那条描述的是一个
+**已被实现消除**的隐患。
+
 ## 4. 验收场景
 
 1. **AskUserQuestion 模型面**：`toContracts()` 产出的 `inputSchema.properties` 恰为 `{questions}`；
@@ -136,6 +190,19 @@ handler 只读 `questions`（`AskUserQuestionAnsweredInputSchema` 要求 `answer
 7. **Agent 描述**：当 CreateWorkflow 不在工具面时不含该行；在工具面时含该行。
 8. **面板口径**：`buildToolUsageDetail` 只统计 `name` + `description` + `inputSchema`，
    与 provider 实际序列化的键集合一致。
+
+第二轮新增（判据是「描述里承诺的机制/UI 在消费链末端是否存在」）：
+
+9. **AskUserQuestion 描述**：不含 `side-by-side` / `monospace box` / `ASCII mockup` / `Preview feature`。
+   同时 `preview` 字段仍在 schema 里（TUI 回传链路依赖），且其 HTTP 片段校验照旧生效。
+10. **Read 描述**：不含 `Do NOT re-read`（该短路已删除）；仍含 `N:HASH`（锚点定义属于 Read）。
+11. **Edit 描述**：不含 `Strip the Read line prefix`（已自动剥）；**仍含**未读指引
+    （事前指引必须留，这是与「冗余」的分界）。
+12. **identity**：不含 `N:HASH` / `.ipynb` / `stale-anchor`（编辑细节归工具描述）；
+    仍含 `EditAnchored`（选择判断）。
+13. **子代理覆盖**：上述工具描述里的跨工具导航与格式定义，在
+    `subagent/general-purpose.ts` 那类「没有 identity 段」的 prompt 下仍可见
+    ——它们只在工具描述里，这是**故意**的。
 
 ## 5. 度量
 
@@ -165,9 +232,52 @@ handler 只读 `questions`（`AskUserQuestionAnsweredInputSchema` 要求 `answer
 「模型填不了却被要求填的字段」（AskUserQuestion 的 `answers`/`annotations`/`metadata`），
 以及修掉 Git 策略的**自相矛盾**（identity 让自主提交、Bash 说要先问）。
 
+### 5.1 第二轮（§3.6–3.8）实测
+
+同一脚本、同一 17 个工具、同一口径，相对第一轮之后的基线：
+
+| 项              | 第一轮后 | 第二轮后 | 差额 | 说明                                    |
+| --------------- | -------- | -------- | ---- | --------------------------------------- |
+| AskUserQuestion | 3468     | 2772     | −696 | 删 686 字符的假 Preview 段 + 改字段描述 |
+| Read            | 1632     | 1484     | −148 | 删已移除短路的引用                      |
+| Edit            | 1856     | 1792     | −64  | 删已自动剥前缀的指引                    |
+| EditAnchored    | 1984     | 1933     | −51  | 删锚点格式重述                          |
+| **工具合计**    | 25279    | 24320    | −959 |                                         |
+| **identity 段** | 8525     | 8009     | −516 | 编辑细节归工具描述                      |
+
+**两处合计 ≈11 268 → 10 776 token（−1 475 字符 / −492 token）**。
+
+两轮累计：工具定义 27 808 → 24 320 字符（−12.5%），加上 identity 8525 → 8009。
+绝对值仍只是窗口的零点几个百分点——**收益不在 token**，在于：
+第一轮去掉「指向不存在的工具」与「填不了的字段」，第二轮去掉「不存在的 UI」与
+「已删除的机制」。这类失实描述会实打实让模型多绕一圈甚至跑空。
+
+真正可继续挖的方向已不在描述层（见 §7）。
+
 ## 6. 不做（本轮刻意排除）
 
-- 不重写任何工具的**语义**文案（保留上游措辞，降低同步冲突）。
+- ~~不重写任何工具的**语义**文案（保留上游措辞，降低同步冲突）。~~
+  → 第二轮修正：措辞不改的前提保留，但**失实陈述必须改**（§3.6–3.7）。
+  两者判据不同：改措辞是重写，改失实是纠错。
 - 不合并 Edit / EditAnchored 两个工具（涉及运行时与 UI，超出「工具定义收敛」范围）。
 - 不动 `CODING_ONLY_TOOLS` 本身（工具面加减是另一件事，见 §3.5 只修描述与注册的一致性）。
 - 不改压缩链路（见 `specs/context-compaction-optimization.md`）。
+
+## 7. 继续优化的方向（不在描述层）
+
+两轮下来，工具描述能挖的**失实**与**纯重复**已经清完。继续在描述层抠字句的边际收益很低，
+而且会撞上「改动越大、上游同步冲突越多」的成本墙。真正还有量级的地方是三处：
+
+1. **工具面本身**（最大）。当前 17 个工具里 `TodoRead`（205 字符，全库只用过 2 次）、
+   `TaskStop`（537 字符，1 次）这类「留着以防万一」的工具，可以直接移出
+   `CODING_ONLY_TOOLS`。移出一个工具省的是**整条 schema + 描述**，比删几句话高一个量级。
+   代价是模型在需要时会说「工具不可用」——这正是 `specs/personal-fork-simplification.md`
+   已经在做的事，只是名单还可以再收。
+2. **AskUserQuestion 的 `preview` 字段存废**。目前处于「描述不宣传、字段保留、只有 TUI 回传
+   会读」的中间态。若确认 TUI 那条链路也没在用，字段连同 HTML 校验可以一起删（约 240 字符 +
+   4 条正则 + 一段 refine）。**需要先确认 TUI 的实际使用**，本轮没动。
+3. **identity 段与工具描述的分工复核**。本轮只处理了「编辑」一处。其余段落
+   （Communication / Delivery 等）与工具描述是否还有其他重叠，值得按同一判据再过一遍：
+   「这条规则在代码里有硬机制吗？在子代理的 prompt 里可见吗？」两个都不是，才考虑挪。
+
+优先级：**1 > 3 > 2**。第 1 项是量级最大的，且不涉及文案重写。

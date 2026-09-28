@@ -66,7 +66,11 @@ const READ_PROVIDER_DESCRIPTION = [
   "- Reads images (PNG, JPG, …) and presents them visually.",
   "- Reads videos (MP4, MOV, WEBM, …) and presents them as video input (subject to ZCode's video input limit).",
   "- Reading a directory, a missing file, or an empty file returns an error or system reminder rather than content.",
-  "- Do NOT re-read a file you just edited to verify — Edit/Write would have errored if the change failed, and the harness tracks file state for you.",
+  // 原先还有一条「不要为了确认而重读刚编辑过的文件」。已删：它描述的那个短路
+  // （`file_unchanged` → "Wasted call"）按 specs/read-unchanged-stub.md 已被移除，
+  // 现在 Read 一律返回内容；而编辑成功的结果本身已带
+  // "file state is current in your context — no need to Read it back"。
+  // 留着等于让模型照一条已不存在的机制规划行为。见 specs/tool-definition-slimming.md §3.7。
 ].join("\n");
 
 const fallbackReadFileStates = new WeakMap<ToolExecutionContext, ReadFileStateMap>();
