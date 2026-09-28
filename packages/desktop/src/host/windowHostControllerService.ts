@@ -44,6 +44,18 @@ function taskKey(task: Pick<ZCodeTaskMeta, "taskId" | "workspacePath" | "workspa
   return `${task.workspaceIdentity?.trim() || task.workspacePath}\0${task.taskId}`;
 }
 
+/**
+ * 任务身份 key 归一化，与 sourceKey / taskKey 启用同一口径。
+ * 本地 workspace 的 workspaceIdentity 会以 undefined / null / 空串 / 路径等
+ * 等价形态跨 RPC 往返，mutation 定位行若用裸 === 比较会被误判为不同任务：
+ * source 已能解析，行却匹配 0，报 "列表 mutation 无法解析唯一 source"。
+ */
+export function taskIdentityKey(
+  address: Pick<WindowHostTaskAddress, "workspacePath" | "workspaceIdentity">,
+): string {
+  return address.workspaceIdentity?.trim() || address.workspacePath;
+}
+
 function normalizeTaskMeta(
   meta: ZCodeTaskMeta,
   scope: WindowHostControllerSourceScope,
@@ -512,7 +524,7 @@ export function createWindowHostControllerRuntime(options: {
                     (row) =>
                       row.address.taskId === normalized.taskId &&
                       row.address.workspacePath === normalized.workspacePath &&
-                      row.address.workspaceIdentity === normalized.workspaceIdentity &&
+                      taskIdentityKey(row.address) === taskIdentityKey(normalized) &&
                       row.address.remoteSessionId ===
                         (source.scope.kind === "remote" ? source.scope.remoteSessionId : undefined),
                   );
@@ -638,7 +650,7 @@ export function createWindowHostControllerRuntime(options: {
               (row) =>
                 row.address.taskId === address.taskId &&
                 row.address.workspacePath === address.workspacePath &&
-                row.address.workspaceIdentity === address.workspaceIdentity &&
+                taskIdentityKey(row.address) === taskIdentityKey(address) &&
                 row.address.remoteSessionId === address.remoteSessionId,
             )?.meta ?? null
         );
@@ -719,7 +731,7 @@ export function createWindowHostControllerRuntime(options: {
           (row) =>
             row.address.taskId === params.taskId &&
             row.address.workspacePath === params.workspacePath &&
-            row.address.workspaceIdentity === params.workspaceIdentity &&
+            taskIdentityKey(row.address) === taskIdentityKey(params) &&
             (!remoteAttachmentScope ||
               row.address.remoteSessionId === remoteAttachmentScope.remoteSessionId),
         );

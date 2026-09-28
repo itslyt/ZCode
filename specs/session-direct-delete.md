@@ -29,6 +29,16 @@
 - i18n：`taskList.delete`、`taskList.deleteFailed`、`confirmDialog.taskDeleteTitle`、
   `confirmDialog.taskDeleteDescription`；`confirmDialog.archivedTaskDeleteDescription` 文案改物理删除表述。
 
+## 任务身份匹配口径（mutation 定位）
+
+- Host Controller 的 mutation（`deleteTask` / `renameTask` / `setTaskUnread` 等）在投影中定位目标行时，
+  **不得用 `===` 裸比较 `workspaceIdentity`**。必须与 source 存储键 `sourceKey`、行键 `taskKey` 启用同一口径：
+  `workspaceIdentity?.trim() || workspacePath`（`taskIdentityKey`）。
+- 原因：本地 workspace 的 `workspaceIdentity` 在 SQLite 中为 NULL，readSourceTaskIndex 映射为 `undefined`，
+  而 RPC 往返后参数里可能表现为 `null` / 缺键 / 空串 / 路径字符串。裸比较会把同一任务判为不同任务，
+  表现为 source 解析成功、行匹配 0，报「列表 mutation 无法解析唯一 source，matches=0」。
+- `taskId` 与 `workspacePath` 仍按字面比较；`remoteSessionId` 仍按 scope 类型严格比较。
+
 ## 验收场景
 
 1. 右键活跃会话 → 菜单含「删除任务」→ 取消 → 列表与数据不变。
@@ -36,3 +46,5 @@
 3. 归档列表单个删除 / 删除所有归档：同样物理删除（DB 0 行）。
 4. 删除失败（如 host 不可用）→ toast 失败，任务保持可见，数据不变。
 5. Web 端与桌面端行为一致（同一 UI 与 service 链）。
+6. 本地 workspace（`workspaceIdentity` 为 NULL/空）中删除活跃任务成功，不出现 `matches=0`；
+   同一任务的 `setTaskUnread` / 重命名同样成功。
