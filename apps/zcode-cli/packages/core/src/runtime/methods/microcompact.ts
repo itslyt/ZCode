@@ -108,11 +108,20 @@ export function resolveLocalMicrocompactConfig(
   const fullCompactThreshold = getAutoCompactThreshold(config);
   return {
     ...config.microcompact,
-    // 本 fork 默认开启：上游是 `=== true`（opt-in），实测日志里一直是 `reason: "disabled"`，
-    // 于是这一层从未生效，旧工具结果一路堆到全量压缩阈值。改成 `!== false`：默认开，
-    // 需要时仍可显式关闭。它是便宜层（只清旧工具结果的内容，保留最近若干条），
-    // 触发阈值也低于全量压缩，本就应该先它一步生效。
-    enabled: config.microcompact?.enabled !== false,
+    // 默认关闭（opt-in，与上游一致）。
+    //
+    // 历史：上游是 `=== true`（默认关）。本 fork 曾改成 `!== false`（默认开），
+    // 理由是上游那版日志里一直 `reason: "disabled"`、这层从未生效。
+    //
+    // 改回默认关的原因（实测 2026-09-28 日志，196 条 applied 事件，来自 2 个长会话）：
+    //   tokensSaved 中位 800、p90 2276、max 610791；clearedMessageCount 中位 2
+    //   → 典型情况是「为回收不到 1K token 就销毁工具结果证据」，性价比接近纯亏；
+    //   且触发极频繁（当日 model.request.completed 共 5825 条，其中 193 条 token_pressure）。
+    //   注意：收益是重尾分布（max 610K），并非每次都很小——所以这是权衡取舍，
+    //   不是无条件正收益；需拿到真实 token 口径的对照数据后再定。
+    //
+    // 保留显式开启通道，便于对照实验与后续按数据决策。
+    enabled: config.microcompact?.enabled === true,
     thresholdTokens:
       config.microcompact?.thresholdTokens ??
       buildDefaultMicrocompactThreshold(fullCompactThreshold),

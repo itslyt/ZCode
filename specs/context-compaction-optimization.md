@@ -116,13 +116,36 @@ Codex 那句用户提示从侧面印证这是真问题（多次压缩掉质量�
 
 **先量再决定**：microcompact 触发后，模型**重读**已被清空文件的频率。若很高，说明整条清空在逼出额外往返，再考虑混合策略。数据源见 §4。
 
-### 3.5 已实施 —— microcompact 默认开启
+### 3.5 已回退 —— microcompact 默认**关闭**（opt-in）
 
-**现状（上游）**：`runtime/methods/microcompact.ts` 的 `resolveLocalMicrocompactConfig` 用 `enabled: config.microcompact?.enabled === true`，即 **opt-in**。实测日志一直是 `compact.micro.skipped` 且 `reason: "disabled"` —— 这一层从未生效，旧工具结果一路堆到全量压缩阈值才被处理，而那已经是会话最贵的一次请求。
+**上游原状**：`runtime/methods/microcompact.ts` 的 `resolveLocalMicrocompactConfig` 用 `enabled: config.microcompact?.enabled === true`，即 **opt-in**。
 
-**改动**：`!== false`（默认开，保留显式关闭的开关）。理由：它是便宜层（只清旧工具结果的内容、保留最近若干条），阈值也低于全量压缩，本就应该先它一步生效。
+**本 fork 曾改为默认开**（`!== false`），理由是上游那版日志一直是 `reason: "disabled"`、这层从未生效。
 
-**测试**：`core/test/microcompact-default.test.ts` 钉住「未配置即开启」「显式 false 仍关闭」「默认阈值必须低于全量压缩阈值」。
+**2026-09-28 回退为默认关**，依据 `~/.zcode/cli/log/zcode-2026-09-28.jsonl` 的真实数据（196 条 `compact.micro.applied`，来自 2 个长会话）：
+
+```text
+tokensSaved        : 中位 800   p90 2,276   max 610,791
+clearedMessageCount: 中位 2     p90 4
+触发               : token_pressure 193 / time_based 3
+```
+
+典型情况是**为回收不到 1K token 就销毁工具结果证据**，而当日 `model.request.completed` 共 5,825 条 —— 触发过于频繁。
+但收益是**重尾分布**（max 610K），并非每次都很小，所以这是权衡取舍而非无条件正收益。改用「默认关 + 显式 `enabled: true` 可开」便于对照实验与后续按数据决策。
+
+**低估偏差的澄清**：先前以 `estimateMessageTokens`（按字符 /3）当作阈值口径，怀疑其系统性低估真实 token。
+用**完整历史请求**（`messagesKind: full`，`messageCount == messages.length`，共 31 条）与
+Provider 真实 `usage` 对比校准：
+
+```text
+real / estimate: p10 0.88   中位 1.06   p90 1.22
+```
+
+**中位 1.06 → 估算器在样本内基本无偏**，不存在 1.66 倍的系统性低估。
+但该样本只覆盖 6~24 条消息、3K~46K token 的小请求，**未覆盖 microcompact 实际触发的巨量上下文区间**，
+故「阈值是否偏低」仍需在阈值附近（>300K）重新采样后再定。
+
+**测试**：`core/test/microcompact-default.test.ts` 钉住「未配置即关闭」「显式 `enabled:true` 可开启且透传」「默认阈值必须低于全量压缩阈值」。
 
 ### 3.6 绝对阈值 vs 比例阈值：ZCode 偏激进，建议取两者较小值
 
@@ -287,10 +310,13 @@ Takumi 的 90% 论证指出：在该路由上比例**同时约束输出预算**�
 
 `isMicrocompactClearedToolResultContent` 由全等改为**前缀**判断，保证带指针内容不被二次清除（幂等）。
 
-### 8.3 不做「整体关掉 microcompact」的理由
+### 8.3 关于「整体关掉 microcompact」
 
-关掉能止住重读，但 700+ 条工具输出全留在上下文会更快触发 autocompact；
-实测一次 autocompact 请求约 48 万 input tokens，比省下的重读贵一个数量级。留指针是更精准的止损。
+当时（未拿到 `tokensSaved` 数据时）的判断是「不关」：关掉能止住重读，但 700+ 条工具输出全留在上下文会更快触发 autocompact；
+实测一次 autocompact 请求约 48 万 input tokens，比省下的重读贵一个数量级。
+
+**2026-09-28 更新**：拿到真实 `tokensSaved` 后该判断不成立 —— 单次回收中位仅 800 token（§3.5），
+远不足以推迟 autocompact，代价却实打实。已改为**默认关闭**，见 §3.5。保留显式开启通道。
 
 ### 8.4 验证
 
