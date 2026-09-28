@@ -293,3 +293,21 @@ Takumi 的 90% 论证指出：在该路由上比例**同时约束输出预算**�
 `test/microcompact-refetch-pointer.test.ts` 4 条：Read 指针含 file/offset/limit、Bash 不给指针、
 幂等不二次清除、Grep 指针含 pattern/path。连同存量 microcompact/阈值/配对测试共 16 条全绿；
 typecheck / lint（74 警告=基线）/ architecture 0 违规。
+
+## 9. 与 Read 未变更短路的关系（指针，不写因果）
+
+Read 的未变更短路（`Wasted call — ... Refer to that earlier tool_result instead.`）已按
+`specs/read-unchanged-stub.md` 删除。此处只记一条事实：
+
+- 删除依据是**请求窗口截断**（`messagesKind: tail/delta`）。本 spec 的 microcompact 清除
+  在实测中**没有**产生不可满足引用（悬空 0 次），不要写成因果。
+
+另有两条与压缩直接相关的实测（详见 `read-unchanged-stub.md` §6，此处只记结论）：
+
+- **不要把 Bash 移出可压缩列表。** 实测 Bash 结果有 97%（334/342）被本机制清空，
+  Read/Grep 为 0%。清 Bash 正是本机制的主要职责，撤出会让原始输出永久堆积。
+- **不需要 eviction 摘要。** 实测 240 个请求全程无全量 compact（`messagesKind` 只有
+  `tail`/`delta`），要解决的问题未出现。
+
+> 计数纪律：引用任何 rollout 数字前必须按 `call_id` 去重。每个请求带全量历史，
+> 未去重的原始出现次数会放大十几倍（实测出现过 816 与去重后 36 的差异）。

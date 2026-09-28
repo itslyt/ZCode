@@ -6,7 +6,6 @@ import { basename, dirname, extname } from "node:path";
 import { computeLineHashes } from "../anchor-hash.js";
 import { mergeServedAnchors } from "../anchor-served.js";
 import type {
-  ReadFileStateEntry,
   ReadFileStateMap,
   ToolExecutionContext,
   ToolHandler,
@@ -189,16 +188,6 @@ const readHandler: ToolHandler = async (input, context) => {
     const readFileState = getReadFileState(context);
     const cacheOffset = normalizeCacheOffset(offset);
     const cacheKey = createReadFileStateKey(filePath, cacheOffset, limit);
-    const cached = readFileState.get(cacheKey);
-    if (cached && isCachedReadFresh(cached, stat)) {
-      const output = { type: "file_unchanged", filePath } satisfies ReadOutput;
-      recordReadFileStateMetadata(context, {
-        output,
-        readFileState,
-        toolInput: input,
-      });
-      return output;
-    }
 
     let rangeReadRevision: FileSystemStatResult["revision"] | undefined;
     const output = await readTextFileForModel({
@@ -333,24 +322,6 @@ function getReadFileState(context: ToolExecutionContext): ReadFileStateMap {
 
 function normalizeCacheOffset(offset: number | undefined): number {
   return offset === undefined ? 1 : offset;
-}
-
-function isCachedReadFresh(entry: ReadFileStateEntry, stat: FileSystemStatResult): boolean {
-  if (entry.isPartialView) return false;
-
-  const mtimeMs = stat.revision?.mtimeMs ?? stat.mtimeMs;
-  if (entry.mtimeMs !== undefined && mtimeMs !== undefined) {
-    // 和写前 freshness 校验保持同一套策略，mtime 只比较整数毫秒。
-    return (
-      normalizeReadFileStateMtimeMs(entry.mtimeMs) === normalizeReadFileStateMtimeMs(mtimeMs) &&
-      entry.sizeBytes === stat.sizeBytes
-    );
-  }
-
-  const revisionId = stat.revision?.id;
-  if (entry.revisionId && revisionId) return entry.revisionId === revisionId;
-
-  return entry.sizeBytes !== undefined && entry.sizeBytes === stat.sizeBytes;
 }
 
 function updateReadFileState(
