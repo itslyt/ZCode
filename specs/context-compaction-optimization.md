@@ -279,13 +279,11 @@ Takumi 的 90% 论证指出：在该路由上比例**同时约束输出预算**�
 - `Read` → `Re-fetch with: Read(file_path="..." offset=... limit=...)`
 - `Grep` → `Re-fetch with: Grep(pattern="...", path="...")`
 - `Glob` → `Re-fetch with: Glob(pattern="...", path="...")`
-- **`Bash` 只读读文件类命令** → 还原为等价的 `Read` 指针（见 §8.5）
+- `Bash` → 维持裸标记（曾尝试还原为 Read 指针，实测命中率 0%，已回滚；见 §8.5）
 - 其余工具（结构参数无法还原为可执行指令）→ 维持裸标记
 
-> **修正（原设计）**：本节原先写「Bash 参数无结构化语义，维持裸标记」，已证伪。
-> `collectBashReadFileSources`（`tool/handlers/bash-read-file-sources.ts:44`）已能把
-> `cat`/`sed -n`/`head`/`tail`/`grep` 解析为 `{filePath,startLine,endLine,tailLines}`，
-> 且是纯函数、无 IO —— 即读文件类 Bash 命令**有**结构化语义。研究见 §8.5。
+> **修正记录**：本节曾一度改为「Bash 读文件类命令可还原为 Read 指针」并合入，
+> 实测真实命令命中率为 0%（§8.5），已回滚。不要再按那个方向实现。
 
 `isMicrocompactClearedToolResultContent` 由全等改为**前缀**判断，保证带指针内容不被二次清除（幂等）。
 
@@ -297,38 +295,54 @@ Takumi 的 90% 论证指出：在该路由上比例**同时约束输出预算**�
 ### 8.4 验证
 
 `test/microcompact-refetch-pointer.test.ts` 6 条：Read 指针含 file/offset/limit、
-**读文件类 Bash 命令还原为 Read 指针**、**非读文件类 Bash 仍裸标记**、
-**管道/重定向不生成指针**、幂等不二次清除、Grep 指针含 pattern/path。
-两个方向都验过：把 Bash 分支还原为旧行为后新增用例必失败（`not ok`），修复后全绿。
+幂等不二次清除、Grep 指针含 pattern/path。
 
-### 8.5 Bash 重取指针（本次新增）
+### 8.5 Bash 重取指针（已实现，实测后回滚）
 
-**问题（实测）**：按 `call_id` 去重，`sess_22501403` 中 Bash 结果 362/368 = 98% 被清除，
+**问题（真实）**：按 `call_id` 去重，`sess_22501403` 中 Bash 结果 362/368 = 98% 被清除，
 而清除文本是**裸标记**——Read/Grep/Glob 都带 `Re-fetch with:`，只有 Bash/Edit/Write 没有。
 Bash 占比最高且含大量不可确定性重取的一次性信息，被清后模型只能重跑。
 
-**为何原先不给**：§8.2 原假设「Bash 参数无结构化语义」。已证伪：
-`tool/handlers/bash-read-file-sources.ts` 的 `collectBashReadFileSources` 能把
-`cat` / `sed -n A,Bp` / `head -n N` / `tail -n N` / `grep` 解析为
-`{filePath, startLine, endLine, tailLines}`，且是**纯函数、无 IO**，并自带对管道、
-重定向、通配符、非读文件命令的拒绝。
+**曾尝试的实现**：复用 `collectBashReadFileSources`（`tool/handlers/bash-read-file-sources.ts`）
+加 `buildBashReadRefetchPointer(command)`，在 `buildRefetchPointer` 里加 Bash 分支。
 
-**实现**：新增 `buildBashReadRefetchPointer(command)`（同文件，纯函数）：
+**实测结果：命中率 0%，已回滚。** 对 `sess_22501403` 的 367 条真实 Bash 命令（去重）：
 
-- 恰好解析出 1 个文件源时才生成指针；否则返回 `undefined` → 回退裸标记
-- `sed -n A,Bp` → `Read(file_path="..." offset=A limit=B-A+1)`
-- `head -n N` → `Read(file_path="..." limit=N)`（`offset=1` 为 Read 默认值，省略）
-- `cat` → `Read(file_path="...")`
-- `tail -n N` / `grep` → 只得 `file_path`（「最后 N 行」与行号集合无法表达为单一 Read 范围），
-  仍显著优于裸标记
+```
+227  61.9%  有重定向 < >     ← 如 2>&1、> /tmp/x.log
+111  30.2%  有管道 |         ← 如 grep ... | uniq -c | sort
+ 29   7.9%  无管道无重定向
+能生成指针: 0  (0.0%)
+```
 
-`compact/microcompact.ts` 的 `buildRefetchPointer` 新增 `Bash` 分支调用它。
-依赖方向：`zcode-cli` 在 `architecture-policy.yaml` 中是单一模块（`managed: false`），
-且 `tool/` 不反向依赖 `compact/`（已核实无环）。
+**为何 0%**：`collectBashReadFileSources` 是为**另一个用途**设计的——判断「这条命令读了哪些文件」
+以回填 `readFileState`（缓存一致性）。那种场景下「宁可漏判、不可误判」是合理的，
+所以它第一道就拒绘一切管道与重定向（`bash-read-file-sources.ts:45` 的 `/[|<>]/`）。
+而真实命令的主导形态是复合命令：
 
-**未做**：附完整输出落盘路径（原方案 b）。阻塞点：请求侧 tool 消息只保留
+```
+cd /Users/…/ZCode && sed -n '386,440p' packages/desktop/src/host/x.ts
+cd /Users/…/ZCode && grep -n "address" packages/desktop/src/host/y.ts
+```
+
+即使剥掉 `cd … &&` 与前置 `echo` 前缀，也只多覆盖 11 条（3.0%）。
+**复用它的前提未经验证**，这是本次的主要失误。
+
+**教训（测试为何没拦住）**：新增的 6 条测试全绿，但用例是**理想形态**
+（`sed -n '676,760p' src/host/x.ts`），从未跑过真实命令。
+这与 §8.4 之前那次的 mock 缺字段假阳性属同一类错误：
+**回归测试必须在真实输入上算过命中率，而不只是断言写死的理想用例。**
+
+**回滚原因**：不只是「无用」，而是**降低信号质量**——`tail -n N` / `grep` 情形只能给
+`file_path`、给不出行范围，可能让模型误以为「读整个文件就够」，比裸标记**更差**。
+
+**若要重做**，正确路线是写一个面向指针生成的解析器（处理 `cd X && …`、
+容忍 `2>&1` 与 `| cat -n`），而不是复用缓存回填用的保守解析器；
+且必须先拿真实命令量命中率再合入。
+
+**仍未做**：附完整输出落盘路径。阻塞点：请求侧 tool 消息只保留
 `[role, content, toolCallId, toolName, isError]`，`LocalMicrocompactMessage` 无 metadata 字段，
-拿不到 `artifactPath`。需先改请求侧消息形状才能实现，本轮不做。
+拿不到 `artifactPath`。需先改请求侧消息形状。
 
 ## 9. 与 Read 未变更短路的关系（指针，不写因果）
 

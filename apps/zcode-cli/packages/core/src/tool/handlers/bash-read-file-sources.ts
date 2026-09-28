@@ -27,7 +27,7 @@ const GREP_ALLOWED_LONG_FLAGS = new Set([
   "--color=auto",
 ]);
 
-export interface BashReadFileSource {
+interface BashReadFileSource {
   filePath: string;
   startLine?: number;
   endLine?: number;
@@ -35,7 +35,7 @@ export interface BashReadFileSource {
   requiresExitZero?: boolean;
 }
 
-export interface SelectedReadContent {
+interface SelectedReadContent {
   content: string;
   offset?: number;
   limit?: number;
@@ -272,36 +272,4 @@ function isPositiveIntegerString(value: string | undefined): value is string {
 
 function isNonNegativeIntegerString(value: string | undefined): value is string {
   return value !== undefined && /^\d+$/.test(value);
-}
-
-/**
- * 把只读读文件类 Bash 命令还原为等价的 Read 指令，供压缩清除时生成可行动指针。
- *
- * 背景：microcompact 清除工具结果后，Read/Grep/Glob 会附 `Re-fetch with:` 指针，
- * 而 Bash 只有裸标记。但读文件类 Bash 命令（cat / sed -n / head / tail / grep）
- * 是有结构化语义的 —— 被清后模型只能重跑命令，而重跑会产生新的不可确定性结果。
- *
- * 纯函数，无 IO；无法可靠映射（管道、重定向、通配符、非读文件命令）时返回 undefined，
- * 由调用方回退到裸标记。
- */
-export function buildBashReadRefetchPointer(command: string): string | undefined {
-  const sources = collectBashReadFileSources(command);
-  if (sources.length !== 1) return undefined;
-  const source = sources[0];
-  if (!source) return undefined;
-
-  const args: string[] = [`file_path="${source.filePath}"`];
-  // 只有 sed -n A,Bp 与 head -n N 含行范围；cat 无范围（读整文件），
-  // tail -n N 的「最后 N 行」与 grep 的行号集合都无法表达为单一 Read 范围。
-  // Read 默认 offset=1，省略以保持指针简洁。
-  if (source.startLine !== undefined && source.startLine > 1) {
-    args.push(`offset=${source.startLine}`);
-  }
-  if (source.endLine !== undefined && source.startLine !== undefined) {
-    const limit = source.endLine - source.startLine + 1;
-    if (limit > 0) args.push(`limit=${limit}`);
-  }
-
-  // 无行范围时只给 file_path（仍优于裸标记：模型可据此定重读或重跑）。
-  return `Re-fetch with: Read(${args.join(" ")})`;
 }

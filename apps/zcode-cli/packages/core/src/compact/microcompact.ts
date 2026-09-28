@@ -6,7 +6,6 @@ import {
   type ModelMessageContent,
   type ToolCallId,
 } from "@zcode/contracts";
-import { buildBashReadRefetchPointer } from "../tool/handlers/bash-read-file-sources.js";
 import type { CompactModelMessage } from "./manual.js";
 import { estimateMessageTokens } from "./manual.js";
 
@@ -260,7 +259,7 @@ function isMicrocompactClearedToolResultContent(content: ModelMessageContent): b
   return modelMessageContentToText(content).startsWith(MICROCOMPACT_CLEARED_TOOL_RESULT_PREFIX);
 }
 
-/** 只读工具的结构化参数可以还原成一条精确的重取指令；无法还原者不给指针。 */
+/** 只读工具的结构化参数可以还原成一条精确的重取指令；Bash 等无结构化参数则不给指针。 */
 function buildRefetchPointer(toolName: string, input: unknown): string | undefined {
   if (!input || typeof input !== "object") return undefined;
   const args = input as Record<string, unknown>;
@@ -291,12 +290,6 @@ function buildRefetchPointer(toolName: string, input: unknown): string | undefin
     if (!pattern) return undefined;
     const path = str(args.path);
     return `Re-fetch with: Glob(pattern="${pattern}"${path ? `, path="${path}"` : ""})`;
-  }
-  if (toolName === "Bash") {
-    const command = str(args.command);
-    // 读文件类 Bash 命令（cat / sed -n / head / tail / grep）可还原为等价的 Read 指令；
-    // 其余命令（管道、重定向、非读文件）返回 undefined，回退到裸标记。
-    return command ? buildBashReadRefetchPointer(command) : undefined;
   }
   return undefined;
 }
