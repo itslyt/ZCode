@@ -409,3 +409,40 @@ Read 的未变更短路（`Wasted call — ... Refer to that earlier tool_result
 | §3 输出三段管理（内联上限 / 保尾 / 落盘 + 路径） | 本仓已有且更细：`bash.ts:480-492` 的 `resultBudget`（`maxModelBytes: 30_000`、`preview.direction: "tail"`、`strategy: "artifact"`、`retention: "session"`）                                   |
 | §2.5 子进程环境清洗（删 18 类凭据）              | **不适用**。它是云端沙箱（执行环境即隔离边界）；本仓是本地 IDE，Bash 跑在用户机器上，删用户凭据会破坏其真实工作流。本仓只清自己注入的运行时变量（`sanitizeZCodeRuntimeEnvInPlace`），边界正确 |
 | §4 WebSearch/WebFetch 数据面                     | **未核实**（按用户要求跳过），不作结论                                                                                                                                                        |
+
+## 11. 实测：真实上下文规模（`sess_22501403`）
+
+判断「阈值是否合理、microcompact 值不值得开」需要真实规模，而不是 rollout 里那段尾窗。
+
+```text
+请求数 380，messagesKind 只有 tail / delta
+inputTokens : 中位 134,297   最大 215,169   最小 87,183
+messageCount: 中位 1,150     最大 1,592
+autocompact 阈值 ≈ 374K (90% × 416K) → 实测最大占 57.5%，全程未触发 autocompact
+```
+
+**结论**：会话全程停在 autocompact 阈值以下（最大 57.5%），说明在 374K 之前
+**只有 microcompact 在工作**。因此「microcompact 是否值得开」等价于
+「它的每次回收量能否抵消它销毁证据的代价」——而这个数**只在日志的 `tokensSaved` 里**。
+
+### 11.1 一个必须避开的测量陷阱
+
+`~/.zcode/cli/rollout/model-io-*.jsonl` 记录的是**尾部窗口**，不是请求全量：
+
+```text
+每条 rollout 记录 messages.length 的取值集合: {64, 2, 3, 4}
+messageOffset 范围: 652 .. 1555        ← 前面 652~1555 条消息未被记录
+messageCount 中位 1150 而 logged 只有 64
+```
+
+即 rollout 只含约 **4%~8%** 的消息。据此估算「工具内容占上下文的多少」会**低估两个数量级**
+（本次调查中一度算出「工具内容仅 5K token」，而真实请求是 134K）。
+**要算占比必须用 `inputTokens`（`response.usage`）与 `messageCount`，不要用 rollout 的 `messages`。**
+
+### 11.2 观测阻塞（已修）
+
+`tokensSaved` / `preMicrocompactTokenCount` 曾被日志脱敏正则误抹为 `[Redacted]`
+（含字面 `token` 即命中），导致本节要回答的问题无法回答。修法见
+`specs/log-redaction-token-metrics.md`（提交 `8460b7b`）。
+修复后需重新采集：`~/.zcode/cli/log/zcode-*.jsonl` 中 `compact.micro.applied` 事件的
+`tokensSaved` 分布 —— 拿到它，「要不要开 microcompact」当场有答案。
