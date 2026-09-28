@@ -516,6 +516,7 @@ async function compactActiveConversationImpl(
 
       const summaryMessageId = createMessageId();
       const summaryMessageContent = buildCompactSummaryMessage(persistedSummary, {
+        sessionId: this.sessionId,
         suppressFollowup: true,
       });
       // Continue 没有对应 Session message；无 store 的统计也不能把它计入保留记录。
@@ -546,6 +547,23 @@ async function compactActiveConversationImpl(
         useMidConversationSystem,
       });
       const providerPostCompactTokenCount = getUsageTotalTokens(result.usage);
+      // 收缩校验：压缩的全部意义是把上下文变小。若替换后估算反而没减，说明本轮没换到空间，
+      // 却已支付一次完整摘要调用（实测单次可达 80s+），且下一轮会立即再次触发。
+      // dsh 对此 fail-closed（`summary is not smaller than the shadowed content`）。
+      // ZCode 先只观测不中断：在确认真实发生前，硬失败会把可恢复场景变成会话中断。
+      if (truePostCompactTokenCount >= preCompactTokenCount) {
+        this.logger?.warn("Compact did not shrink the conversation", {
+          ...traceContextToLogContext(turnTraceContext),
+          event: "compact.no_shrink",
+          module: "core.runtime",
+          phase,
+          postCompactTokenCount: truePostCompactTokenCount,
+          preCompactTokenCount,
+          status: "completed",
+          summarizedMessageCount: entriesToSummarize.length,
+          trigger,
+        });
+      }
       const compactBoundary = buildManualCompactBoundary({
         boundaryId: createCompactBoundaryId(),
         autoCompactThreshold: options.autoCompactThreshold,

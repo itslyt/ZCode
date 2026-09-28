@@ -137,6 +137,8 @@ export function buildCompactSummaryMessage(
     replStateCleared?: boolean;
     suppressFollowup?: boolean;
     transcriptPath?: string;
+    /** 本会话 id：告诉模型压缩掉的原文仍可用 ReadSessionContext 回读。 */
+    sessionId?: string;
   } = {},
 ): string {
   let message = `This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
@@ -145,6 +147,13 @@ ${formatCompactSummary(summary)}`;
 
   if (options.transcriptPath) {
     message += `\n\nIf you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: ${options.transcriptPath}`;
+  }
+
+  // 压缩把旧消息从模型面抹掉，但原文仍在会话库里（message/part 表不删）。
+  // 不告知这条通道，模型会把“看不见”当成“不存在”，进而重做已完成的工作或凭空猜测。
+  // 用已有的 ReadSessionContext（built-in，始终在工具面）回读本会话，不给模型新增工具。
+  if (options.sessionId) {
+    message += `\n\nThe earlier messages were removed from this conversation but are still persisted. To retrieve specific details from before compaction (exact code snippets, error strings, file contents, or earlier decisions), call ReadSessionContext with sessionId="${options.sessionId}" and a focused query. Read only what you need — this is your own session history, not another session.`;
   }
 
   if (options.recentMessagesPreserved) {
