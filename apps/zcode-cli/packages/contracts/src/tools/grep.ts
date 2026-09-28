@@ -5,7 +5,7 @@
 
 import { z } from "zod";
 import type { ToolCallId, TraceId } from "../interfaces/shared.js";
-import { toToolJsonSchema } from "./json-schema.js";
+import { pickToolJsonSchemaProperties, toToolJsonSchema } from "./json-schema.js";
 
 export const GrepOutputMode = {
   Content: "content",
@@ -46,72 +46,65 @@ export const GrepInputSchema = z.object({
     .enum(["content", "files_with_matches", "count"])
     .optional()
     .describe(
-      'Output mode: "content" shows matching lines (supports -A/-B/-C context, -n line numbers, head_limit), "files_with_matches" shows file paths (supports head_limit), "count" shows match counts (supports head_limit). Defaults to "files_with_matches".',
+      'Output mode: "content" (matching lines), "files_with_matches" (file paths, default), or "count" (match counts). The -A/-B/-C/context, -n, -i and -o flags apply only in "content" mode.',
     ),
-  "-B": z
-    .number()
-    .optional()
-    .describe(
-      'Number of lines to show before each match (rg -B). Requires output_mode: "content", ignored otherwise.',
-    ),
-  "-A": z
-    .number()
-    .optional()
-    .describe(
-      'Number of lines to show after each match (rg -A). Requires output_mode: "content", ignored otherwise.',
-    ),
-  "-C": z
-    .number()
-    .optional()
-    .describe("Alias for context."),
-  context: z
-    .number()
-    .optional()
-    .describe(
-      'Number of lines to show before and after each match (rg -C). Requires output_mode: "content", ignored otherwise.',
-    ),
-  "-n": z
-    .boolean()
-    .optional()
-    .describe(
-      'Show line numbers in output (rg -n). Requires output_mode: "content", ignored otherwise. Defaults to true.',
-    ),
-  "-i": z.boolean().optional().describe("Case insensitive search (rg -i)"),
+  "-B": z.number().optional().describe("Lines to show before each match (rg -B)."),
+  "-A": z.number().optional().describe("Lines to show after each match (rg -A)."),
+  "-C": z.number().optional().describe("Alias for context."),
+  context: z.number().optional().describe("Lines to show before and after each match (rg -C)."),
+  "-n": z.boolean().optional().describe("Show line numbers (rg -n). Defaults to true."),
+  "-i": z.boolean().optional().describe("Case insensitive search (rg -i)."),
   "-o": z
     .boolean()
     .optional()
-    .describe(
-      'Print only the matched (non-empty) parts of each matching line, one match per output line (rg -o / --only-matching). Requires output_mode: "content", ignored otherwise. Defaults to false.',
-    ),
-  type: z
-    .string()
-    .optional()
-    .describe(
-      "File type to search (rg --type). Common types: js, py, rust, go, java, etc. More efficient than include for standard file types.",
-    ),
+    .describe("Print only the matched parts of each line, one match per line (rg -o). Defaults to false."),
+  // type / offset 仍被 handler 与运行时校验接受（老脚本、hook 改写可能带），只是不再发给模型：
+  // 632 次真实调用里两者均为 0 次，留着只占 schema 篇幅。见 ToolEntry.providerInputSchema。
+  type: z.string().optional().describe("File type to search (rg --type), e.g. js, py, rust, go."),
   head_limit: z
     .number()
     .optional()
     .describe(
-      'Limit output to first N lines/entries, equivalent to "| head -N". Works across all output modes: content (limits output lines), files_with_matches (limits file paths), count (limits count entries). Defaults to 250 when unspecified. Pass 0 for unlimited (use sparingly — large result sets waste context).',
+      'Limit output to the first N lines/entries, like "| head -N". Defaults to 250. Pass 0 for unlimited (use sparingly — large result sets waste context).',
     ),
   offset: z
     .number()
     .optional()
     .describe(
-      'Skip first N lines/entries before applying head_limit, equivalent to "| tail -n +N | head -N". Works across all output modes. Defaults to 0.',
+      'Skip the first N lines/entries before applying head_limit, like "| tail -n +N | head -N". Defaults to 0.',
     ),
   multiline: z
     .boolean()
     .optional()
-    .describe(
-      "Enable multiline mode where . matches newlines and patterns can span lines (rg -U --multiline-dotall). Default: false.",
-    ),
+    .describe("Enable multiline mode where . matches newlines (rg -U --multiline-dotall). Default: false."),
 });
 
 export type GrepInput = z.infer<typeof GrepInputSchema>;
 
 export const GrepInputJsonSchema = toToolJsonSchema(GrepInputSchema);
+
+/**
+ * 模型面参数 schema：去掉 `type` 与 `offset`。
+ *
+ * 依据是对本地真实会话的统计：632 次 Grep 调用里 `type` 与 `offset` 各出现 **0** 次，
+ * 而它们合计占 schema 约 350 字符。运行时 `GrepInputSchema` 原样保留——hook 改写或
+ * 旧插件仍可能传这两个字段，executor 校验必须继续接受。
+ */
+export const GrepProviderInputJsonSchema = pickToolJsonSchemaProperties(GrepInputJsonSchema, [
+  "pattern",
+  "path",
+  "glob",
+  "output_mode",
+  "-A",
+  "-B",
+  "-C",
+  "context",
+  "-n",
+  "-i",
+  "-o",
+  "head_limit",
+  "multiline",
+]);
 
 // -----------------------------------------------
 // Output Types

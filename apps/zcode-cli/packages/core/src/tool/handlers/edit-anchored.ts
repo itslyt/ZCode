@@ -74,8 +74,6 @@ const EDIT_ANCHORED_PROVIDER_DESCRIPTION = [
   "- Every entry is resolved against the file's original content, so entries never displace each other. All-or-nothing.",
   "- Anchors stay valid after edits elsewhere in the file: if line numbers moved, the anchor's hash re-locates it. The result returns fresh anchors for the changed region.",
   "- Only lines you have already read can be edited. If an anchor is rejected, the error includes the region's current anchors.",
-  "",
-  "Use `Edit` instead when the target line was never shown to you (for example you only found it with Grep), for `.ipynb` / binary / non-UTF-8 files, or after two `EditAnchored` failures on the same file.",
 ].join("\n");
 
 const NOTEBOOK_FILE_MESSAGE =

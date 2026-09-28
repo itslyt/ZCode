@@ -363,6 +363,18 @@ export interface ToolEntry extends ToolContractDeclaration {
    * runs earlier, is async, and whose result the whole downstream chain shares.
    */
   prepareApproval?: (input: unknown) => ToolApprovalGate;
+  /**
+   * 模型面参数 schema：只在拼 provider 契约时优先使用，运行时校验永远读 `inputSchema`。
+   *
+   * 存在的理由是 `inputSchema` 被迫双用途：`registry.toContracts()` 拿它发给模型，
+   * `executor/validation.ts` 又拿同一份做输入校验（且 `permission-flow.ts` 在权限改写
+   * 输入后会再校验一次）。于是「从模型面删字段」若直接改 `inputSchema`，会把权限阶段
+   * 注入的字段（如 AskUserQuestion 的 `answers`）判成非法键。
+   *
+   * 只用于**收窄**（模型可见面 ⊆ 运行时接受面）；需要按上下文**放宽**时用
+   * `resolveModelContract`——那条路径同时改执行侧，语义不同。
+   */
+  providerInputSchema?: JsonSchema;
   inputSchema: JsonSchema;
   runtimeInputSchema?: unknown;
   runtimeOutputSchema?: unknown;

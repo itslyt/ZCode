@@ -37,6 +37,37 @@ export function normalizeToolJsonSchema(schema: JsonSchema): JsonSchema {
   return schema;
 }
 
+/**
+ * 裁出只发给 provider 的顶层参数 schema：只保留 `keep` 里的属性，并同步裁 `required`。
+ *
+ * 用途是「模型可见面 ⊂ 运行时接受面」：`inputSchema` 同时喂 provider 与 executor 校验，
+ * 后者必须继续接受权限阶段注入的字段（如 AskUserQuestion 的 `answers`），所以
+ * 只能在 provider 那一份上做减法，见 `ToolEntry.providerInputSchema`。
+ */
+export function pickToolJsonSchemaProperties<T extends JsonSchema>(
+  schema: T,
+  keep: readonly string[],
+): T {
+  const source = schema as Record<string, unknown>;
+  const properties = source.properties as Record<string, unknown> | undefined;
+  if (!properties) return schema;
+
+  const allowed = new Set(keep);
+  const narrowed: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(properties)) {
+    if (allowed.has(key)) narrowed[key] = value;
+  }
+
+  const clone: Record<string, unknown> = { ...source, properties: narrowed };
+  const required = clone.required;
+  if (Array.isArray(required)) {
+    const keptRequired = required.filter((key) => allowed.has(String(key)));
+    if (keptRequired.length > 0) clone.required = keptRequired;
+    else delete clone.required;
+  }
+  return clone as T;
+}
+
 function normalizeSchemaNode(value: unknown): void {
   if (Array.isArray(value)) {
     for (const item of value) {

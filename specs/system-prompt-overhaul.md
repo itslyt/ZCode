@@ -239,6 +239,11 @@ DSH 不落请求体，所以字节数改从**本地源码**量：`/Users/liuyuto
 
 ## 12. 工具定义逐项对比：胖还是瘦
 
+> **后续（2026-09-28）**：本节的结论「不要再手工改描述文案」已部分被推翻，
+> 见 `specs/tool-definition-slimming.md`。该轮不改语义文案的前提仍成立，
+> 但确实回收了纯冗余（AskUserQuestion 的输出侧字段、Grep 的 0 使用参数）
+> 与两处悬空引用（Agent→CreateWorkflow、AskUserQuestion→计划模式工具）。
+
 DSH 侧（源码量，同口径：描述 + 参数块）与 ZCode 侧（真实请求）：
 
 | 工具               | DSH       | ZCode                                    | 差             |

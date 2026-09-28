@@ -110,7 +110,8 @@ export class ToolRegistryImpl implements ToolRegistry {
         capability: entry.capability,
         executionMode: entry.executionMode,
         providerNative: entry.providerNative,
-        inputSchema: entry.inputSchema,
+        // 模型面优先用 providerInputSchema（收窄）；运行时校验仍读 entry.inputSchema。
+        inputSchema: entry.providerInputSchema ?? entry.inputSchema,
         outputSchema: entry.outputSchema,
         ...(entry.strict === undefined ? {} : { strict: entry.strict }),
         readOnly: entry.metadata.readOnly,

@@ -203,77 +203,100 @@ export function registerBuiltInTools(
   const allowedTools = options.allowedTools ? new Set(options.allowedTools) : undefined;
   const disallowedTools = createToolRuleNameSet(options.disallowedTools);
 
+  // 先算出**真正会被注册**的工具名集合，再据此烘焙描述。
+  //
+  // 根因：Agent 描述里那条「工作流请求必须改用 CreateWorkflow」原先只看
+  // `includeDynamicWorkflow`（默认 true），但本 fork 的工具面还被 allowlist（CODING_ONLY_TOOLS
+  // 不含 CreateWorkflow）与 disallowlist 收窄。两套判据彼此独立，于是出现「描述指向一个
+  // 不存在的工具」——实测 17 个工具的请求里仍在写 "the CreateWorkflow tool is mandatory"。
+  // 用同一趟过滤的结果做判据，描述与工具面**结构上不可能**再漂移。
+  const registeredNames = new Set(
+    builtInTools
+      .filter((entry) => shouldRegisterBuiltInTool(entry, { allowedTools, disallowedTools, options }))
+      .map((entry) => entry.metadata.name),
+  );
+
   for (const entry of builtInTools) {
-    if (
-      options.embeddedSearchEnabled === true &&
-      (entry.metadata.name === "Glob" || entry.metadata.name === "Grep")
-    ) {
+    if (!shouldRegisterBuiltInTool(entry, { allowedTools, disallowedTools, options })) {
       continue;
     }
-    if (allowedTools && !allowedTools.has(entry.metadata.name)) {
-      continue;
-    }
-    if (disallowedTools?.has(entry.metadata.name)) {
-      continue;
-    }
-    if (isSubagentDispatchToolName(entry.metadata.name) && options.includeAgent !== true) {
-      continue;
-    }
-    if (entry.metadata.name === "Skill" && options.includeSkill === false) {
-      continue;
-    }
-    if (entry.metadata.name === "SendMessage" && options.includeSendMessage !== true) {
-      continue;
-    }
-    if (
-      entry.metadata.name === "RespondToCoordinator" &&
-      options.includeRespondToCoordinator !== true
-    ) {
-      continue;
-    }
-    if (entry.metadata.name === "submit_result" && options.includeSubmitResult !== true) {
-      continue;
-    }
-    if (entry.metadata.name === "escalate" && options.includeEscalate !== true) {
-      continue;
-    }
-    if (entry.metadata.name === "Workflow" && options.includeWorkflow !== true) {
-      continue;
-    }
-    if (
-      (entry.metadata.name === "CronCreate" ||
-        entry.metadata.name === "CronList" ||
-        entry.metadata.name === "CronUpdate" ||
-        entry.metadata.name === "CronDelete") &&
-      options.includeAutomation !== true
-    ) {
-      continue;
-    }
-    if (
-      (entry.metadata.name === "OffPeakCreate" || entry.metadata.name === "OffPeakList") &&
-      options.includeOffPeak !== true
-    ) {
-      continue;
-    }
-    if (
-      options.includeDynamicWorkflow === false &&
-      DYNAMIC_WORKFLOW_TOOL_NAMES.has(entry.metadata.name)
-    ) {
-      continue;
-    }
-    if (entry.metadata.name === "js" && options.includeNodeRepl !== true) {
-      continue;
-    }
-    registry.register(resolveBuiltInToolEntryForBranch(entry, options), {
+    registry.register(resolveBuiltInToolEntryForBranch(entry, options, registeredNames), {
       silentDuplicateWarning: options.silentDuplicateWarnings,
     });
   }
 }
 
+function shouldRegisterBuiltInTool(
+  entry: ToolEntry,
+  context: {
+    allowedTools: Set<string> | undefined;
+    disallowedTools: ReadonlySet<string> | undefined;
+    options: RegisterBuiltInToolsOptions;
+  },
+): boolean {
+  const { allowedTools, disallowedTools, options } = context;
+  const name = entry.metadata.name;
+
+  if (
+    options.embeddedSearchEnabled === true &&
+    (name === "Glob" || name === "Grep")
+  ) {
+    return false;
+  }
+  if (allowedTools && !allowedTools.has(name)) {
+    return false;
+  }
+  if (disallowedTools?.has(name)) {
+    return false;
+  }
+  if (isSubagentDispatchToolName(name) && options.includeAgent !== true) {
+    return false;
+  }
+  if (name === "Skill" && options.includeSkill === false) {
+    return false;
+  }
+  if (name === "SendMessage" && options.includeSendMessage !== true) {
+    return false;
+  }
+  if (name === "RespondToCoordinator" && options.includeRespondToCoordinator !== true) {
+    return false;
+  }
+  if (name === "submit_result" && options.includeSubmitResult !== true) {
+    return false;
+  }
+  if (name === "escalate" && options.includeEscalate !== true) {
+    return false;
+  }
+  if (name === "Workflow" && options.includeWorkflow !== true) {
+    return false;
+  }
+  if (
+    (name === "CronCreate" || name === "CronList" || name === "CronUpdate" || name === "CronDelete") &&
+    options.includeAutomation !== true
+  ) {
+    return false;
+  }
+  if ((name === "OffPeakCreate" || name === "OffPeakList") && options.includeOffPeak !== true) {
+    return false;
+  }
+  if (options.includeDynamicWorkflow === false && DYNAMIC_WORKFLOW_TOOL_NAMES.has(name)) {
+    return false;
+  }
+  if (name === "js" && options.includeNodeRepl !== true) {
+    return false;
+  }
+  return true;
+}
+
 function resolveBuiltInToolEntryForBranch(
   entry: ToolEntry,
   options: RegisterBuiltInToolsOptions,
+  registeredNames: ReadonlySet<string>,
 ): ToolEntry {
+  // 描述里的工作流一行以**实际注册结果**为准，而不是 includeDynamicWorkflow 单一开关：
+  // allowlist（本 fork 的 CODING_ONLY_TOOLS 不含 CreateWorkflow）同样会让它缺席。
+  // 见 registerBuiltInTools 的根因注释。
+  const dynamicWorkflowToolPresent = registeredNames.has(CREATE_WORKFLOW_TOOL_NAME);
   if (entry.metadata.name === "Bash") {
     return createBashToolEntry({
       bashTimeoutPolicy: options.bashTimeoutPolicy,
@@ -283,21 +306,18 @@ function resolveBuiltInToolEntryForBranch(
   if (entry.metadata.name === SUBMIT_RESULT_TOOL_NAME && options.submitResultSchema !== undefined) {
     return createSubmitResultToolEntry(options.submitResultSchema);
   }
-  // 灰度门同时管工具面和**描述**：Agent / Task 的描述里有一条「工作流请求必须改用
-  // CreateWorkflow」，关闭时那个工具不存在，留着只会把模型指向不存在的工具。用的是与注册过滤同一个
-  // options.includeDynamicWorkflow，所以首次装配与分支刷新产出的描述必然一致。
   if (entry.metadata.name === "Agent") {
     return createAgentToolEntry({
       embeddedSearchEnabled: options.embeddedSearchEnabled,
       profiles: options.agentProfiles,
-      dynamicWorkflowEnabled: options.includeDynamicWorkflow !== false,
+      dynamicWorkflowEnabled: dynamicWorkflowToolPresent,
     });
   }
   if (entry.metadata.name === "Task") {
     return createTaskToolEntry({
       embeddedSearchEnabled: options.embeddedSearchEnabled,
       profiles: options.agentProfiles,
-      dynamicWorkflowEnabled: options.includeDynamicWorkflow !== false,
+      dynamicWorkflowEnabled: dynamicWorkflowToolPresent,
     });
   }
   if (entry.metadata.name === "EnterPlanMode") {

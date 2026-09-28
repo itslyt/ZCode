@@ -4,7 +4,7 @@
 // References: interactive clarification tool behavior
 
 import { z } from "zod";
-import { toToolJsonSchema } from "./json-schema.js";
+import { pickToolJsonSchemaProperties, toToolJsonSchema } from "./json-schema.js";
 
 export const ASK_USER_QUESTION_TOOL_NAME = "AskUserQuestion";
 export const ASK_USER_QUESTION_TOOL_CHIP_WIDTH = 12;
@@ -187,6 +187,20 @@ export type AskUserQuestionOutput = z.infer<typeof AskUserQuestionOutputSchema>;
 
 export const AskUserQuestionInputJsonSchema = withRequiredDefaultedMultiSelect(
   toToolJsonSchema(AskUserQuestionInputSchema),
+);
+
+/**
+ * 模型面参数 schema：顶层只留 `questions`。
+ *
+ * `answers` / `annotations` / `metadata` 由权限组件在模型调用之后注入（见 handler 的
+ * `AskUserQuestionAnsweredInputSchema`），描述原文即自证不属于模型输入——分别写着
+ * "collected by the permission component"、"annotations from the user"，
+ * 且 `metadata.source` 还在解释内部命令。三者合计约 955 字符，对模型只有误导。
+ * 运行时 `AskUserQuestionInputSchema` 一字未改，权限注入的 `answers` 仍能通过校验。
+ */
+export const AskUserQuestionProviderInputJsonSchema = pickToolJsonSchemaProperties(
+  AskUserQuestionInputJsonSchema,
+  ["questions"],
 );
 
 export const AskUserQuestionOutputJsonSchema = toToolJsonSchema(AskUserQuestionOutputSchema);

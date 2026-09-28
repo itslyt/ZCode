@@ -312,17 +312,17 @@ export function buildToolUsageDetail(
   this: AgentRuntimeInternal,
   tool: ModelToolContract,
 ): ContextUsageToolDetail {
+  // 只统计 provider 真正序列化的三个键。
+  //
+  // 根因：这里原先把 capability / outputSchema / permission / resultBudget 等执行侧元数据
+  // 也算进「系统工具」占用，而请求体里每个 tool 只有 name / description / input_schema
+  // （实测 17 个工具：元数据口径 10.6K，真实序列化 29.3k 字符 ≈ 9.75K token，偏高约 8%）。
+  // 面板数字会被用户当成事实，多算等于告知一个不存在的占用。
+  // `tool.inputSchema` 已是 provider 投影后的结果（含 providerInputSchema 收窄）。
   const content = stringifyForEstimation({
     name: tool.name,
     description: tool.description,
-    capability: tool.capability,
     inputSchema: tool.inputSchema,
-    outputSchema: tool.outputSchema,
-    readOnly: tool.readOnly,
-    destructive: tool.destructive,
-    sideEffectScope: tool.sideEffectScope,
-    permission: tool.permission,
-    resultBudget: tool.resultBudget,
   });
   const mcp = parseMcpToolName(tool.name);
   return {

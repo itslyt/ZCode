@@ -14,10 +14,9 @@ export function createBashProviderDescription(input: {
     `- IMPORTANT: Avoid using this tool to run ${avoidCommands} commands, unless explicitly instructed or after you have verified that a dedicated tool cannot accomplish your task. Instead, use the appropriate dedicated tool as this will provide a much better experience for the user.`,
     `- \`timeout\` is in milliseconds: default ${input.defaultTimeoutMs}, max ${input.maxTimeoutMs}.`,
     "- `run_in_background` runs the command detached: it keeps running across turns and re-invokes you when it exits. No `&` needed.",
-    "",
-    "# Git",
+    // Git 策略（提交/推送/分支/gh CLI）的唯一所有者在 identity 段；这里只留本工具自己的限制。
+    // 曾在此重复一条与 identity 冲突的 "Commit or push only when the user asks"：
+    // 两句同时在场时模型只能猜，见 specs/tool-definition-slimming.md §3.3。
     "- Interactive flags (`-i`, e.g. `git rebase -i`, `git add -i`) are not supported in this environment.",
-    "- Use the `gh` CLI for GitHub operations (PRs, issues, API).",
-    "- Commit or push only when the user asks. If on the default branch, branch first.",
   ].join("\n");
 }
