@@ -472,3 +472,54 @@ messageCount 中位 1150 而 logged 只有 64
 `specs/log-redaction-token-metrics.md`（提交 `8460b7b`）。
 修复后需重新采集：`~/.zcode/cli/log/zcode-*.jsonl` 中 `compact.micro.applied` 事件的
 `tokensSaved` 分布 —— 拿到它，「要不要开 microcompact」当场有答案。
+
+## 12. 压缩的可回读性（2026-09-28 第三轮）
+
+### 12.1 问题：压缩不可逆，但原文其实还在
+
+压缩把旧消息从**模型面**抹掉，但会话库不删原文——`message` / `part` 表保留全部历史
+（实测一个已发生多次压缩的会话，库里仍有 3262 条 message）。也就是说「压缩」只是**投影层**的替换，不是数据销毁。
+
+但摘要消息此前**不指向任何回溯通道**：
+
+- `buildCompactSummaryMessage` 有 `transcriptPath` 选项（`compact/prompt.ts`），
+  但全仓 `grep transcriptPath` 只有该定义处 + hooks 的 harness transcript，
+  **压缩路径从未传值** → 该分支从未生效。
+- 模型因此只能把「看不见」当成「不存在」：重做已完成的工作、或凭空猜测被压掉的细节。
+
+### 12.2 方案：复用已有的 `ReadSessionContext`，不新增工具
+
+`ReadSessionContext` 是 built-in 工具（`tool/handlers/index.ts:109`，始终在工具面），
+handler 只按 `context.sessionStore.messages({ sessionID })` 取数，**不限定"另一个会话"**
+（`read-session-context.ts:65`）——所以传自己的 `sessionId` 即可回读本会话。
+
+摘要消息改为附带：
+
+```
+The earlier messages were removed from this conversation but are still persisted.
+To retrieve specific details from before compaction (...), call ReadSessionContext
+with sessionId="<本会话 id>" and a focused query.
+Read only what you need — this is your own session history, not another session.
+```
+
+同签名的 `transcriptPath` 分支保留（上游形态），但本 fork 走 sessionId 这条：
+不新增工具、不新增权限面，且模型本来就有这个工具。
+
+**测试**：`core/test/compact-recovery-pointer.test.ts` 3 条，含
+「给了 sessionId 才出现指引」「不吞掉 suppressFollowup 段落」的回归保护。
+
+### 12.3 附带：压缩未收缩的观测
+
+替换后若 `truePostCompactTokenCount >= preCompactTokenCount`，说明本轮
+支付了一次完整摘要调用（实测单次可达 80s+）却没换到空间，且下一轮会立即再触发。
+
+dsh 对此 **fail-closed**（`summary is not smaller than the shadowed content`）。
+ZCode 先只 `warn`（事件 `compact.no_shrink`）不中断——在确认真实发生前，
+硬失败会把可恢复场景变成会话中断。**拿到该事件的数据后再决定是否升级为失败。**
+
+### 12.4 已知缺口：没有 precompute（对照 CC 第三层）
+
+CC 有 `precomputeCompactionEnabled`：压缩触发前就预先算好摘要，真正需要时零等待。
+ZCode 没有这一层，压缩的完整耗时（实测 `compact.completed` 的 `durationMs` 最长 **114,619ms**，
+即约 115 秒）直接落在对话主路径上。这是四家对比里 ZCode 最明显的能力缺口，
+但实现成本高（需要在触发前预测压缩时机），本轮不做。
