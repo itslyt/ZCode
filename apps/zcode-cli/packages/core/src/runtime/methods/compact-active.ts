@@ -716,6 +716,7 @@ function selectInitialCompactEntriesForActiveConversation(input: {
   const baseSelection = selectCompactEntries({
     entries: input.activeEntries,
     trigger: input.trigger,
+    useMidConversationSystem: input.useMidConversationSystem,
   });
   if (input.initialPromptTooLongCause === undefined) {
     return baseSelection;

@@ -20,6 +20,19 @@ interface CompactRetryLogger {
   warn(message: string, context?: Record<string, unknown>): void;
 }
 
+/**
+ * 原样保留尾部的默认 token 预算。
+ *
+ * 取值依据（实测 3 个长会话，按 assistant 轮分组）：
+ *   每轮 token 中位 ~1.0–1.6K、p90 ~4.5–5.4K、max ~20.6K。
+ *   所以旧行为「只保留 1 轮」中位仅留下 ~1K token —— 几乎等于不留，
+ *   而压缩后的可用预算（摘要上限 20K）远大于它。
+ * 20K 相当于「典型约 15 轮 / 重尾时 1 轮」，与 Codex 的
+ * COMPACT_USER_MESSAGE_MAX_TOKENS = 20_000 同量级，远低于 dsh 的 16%(~68K)，
+ * 故意偏保守：保留量越大，压缩后越可能立即再次超过阈值。
+ */
+export const DEFAULT_COMPACT_RETAIN_TOKENS = 20_000;
+
 export interface CompactEntrySelection {
   entriesForSummary: RuntimeMessageEntry[];
   groupsPreserved: number;
@@ -30,18 +43,39 @@ export interface CompactEntrySelection {
 export function selectCompactEntries(input: {
   entries: readonly RuntimeMessageEntry[];
   minimumGroupsToPreserve?: number;
+  /**
+   * 原样保留的尾部 token 预算。在至少保留 1 轮的基础上，从尾往前整轮累计，
+   * 只要不超过该预算就继续多留——在「留轮」与「留量」之间取实际能留住的。
+   * 见 specs/context-compaction-optimization.md §13。
+   */
+  retainTokens?: number;
   trigger: CompactTrigger;
+  useMidConversationSystem?: boolean;
 }): CompactEntrySelection {
   const split = splitRuntimeEntriesForCompactSelection(input.entries, input.trigger);
+  // 先确定下限：自动/被动压缩至少原样保留最近 1 轮（手动压缩不保留）。
   const baseGroupsToPreserve = split.shouldPreserveRecent && split.groups.length > 1 ? 1 : 0;
-  const requestedGroupsToPreserve = Math.max(
+  const floorGroupsToPreserve = Math.max(
     baseGroupsToPreserve,
     positiveInt(input.minimumGroupsToPreserve) ?? 0,
   );
   const maxGroupsToPreserve = Math.max(0, split.groups.length - 1);
-  const groupsToPreserve = split.shouldPreserveRecent
-    ? Math.min(requestedGroupsToPreserve, maxGroupsToPreserve)
+  // 再按 token 预算向上扩展：
+  //   保留单位是 assistant 轮，而实测每轮 token 中位仅 ~1K、p90 ~4.5K、max ~20K
+  //   （按 user-turn 口径会得出「一轮可能上百个工具调用」，那是错的单位）。
+  //   所以「只留 1 轮」＝典型的只留 1K token，几乎等于不留；而「留 N 轮」在参数里
+  //   无法表达容量。改成：先把下限补齐，再在不超预算的前提下尽量多留整轮，
+  //   既保证工具配对不被切断（整轮），又让保留量随预算而非轮数走。
+  const retainedGroupCount = split.shouldPreserveRecent
+    ? resolveGroupsWithinTokenBudget({
+        groups: split.groups,
+        floorGroups: floorGroupsToPreserve,
+        maxGroups: maxGroupsToPreserve,
+        retainTokens: positiveInt(input.retainTokens) ?? DEFAULT_COMPACT_RETAIN_TOKENS,
+        useMidConversationSystem: input.useMidConversationSystem,
+      })
     : 0;
+  const groupsToPreserve = retainedGroupCount;
   const summaryGroups =
     groupsToPreserve > 0
       ? split.groups.slice(0, split.groups.length - groupsToPreserve)
@@ -204,6 +238,55 @@ export function truncateCompactSummaryRequestEntriesAfterPromptTooLong(options: 
   });
 
   return truncated;
+}
+
+/**
+ * 从尾部按整轮累计，在不超过 `retainTokens` 预算的前提下尽量多保留。
+ *
+ * 语义：
+ *  - 下限 `floorGroups` 无条件满足（即使已超预算）——它编码的是「至少留最近一轮」
+ *    这类硬要求，不能被预算推翻。
+ *  - 上限 `maxGroups` 已保证至少有一轮进入摘要（否则压缩无意义）。
+ *  - 无 `retainTokens` 时保持旧行为：只保下限，不多留。
+ */
+function resolveGroupsWithinTokenBudget(input: {
+  groups: readonly { length: number }[];
+  floorGroups: number;
+  maxGroups: number;
+  retainTokens?: number;
+  useMidConversationSystem?: boolean;
+}): number {
+  const floor = Math.min(input.floorGroups, input.maxGroups);
+  const budget = input.retainTokens;
+  if (budget === undefined) return floor;
+
+  // 先满足下限，再逐轮向前扩，直到再加一轮就会超预算。
+  let kept = floor;
+  let accumulated = sumLastGroupTokens(input.groups, kept, input.useMidConversationSystem);
+  while (kept < input.maxGroups) {
+    const nextTokens = estimateRuntimeEntryTokens(
+      input.groups[input.groups.length - kept - 1] as RuntimeMessageEntry[],
+      { useMidConversationSystem: input.useMidConversationSystem },
+    );
+    if (accumulated + nextTokens > budget) break;
+    accumulated += nextTokens;
+    kept += 1;
+  }
+  return kept;
+}
+
+function sumLastGroupTokens(
+  groups: readonly { length: number }[],
+  count: number,
+  useMidConversationSystem: boolean | undefined,
+): number {
+  let total = 0;
+  for (let index = groups.length - count; index < groups.length; index += 1) {
+    const group = groups[index];
+    if (!group) continue;
+    total += estimateRuntimeEntryTokens(group as RuntimeMessageEntry[], { useMidConversationSystem });
+  }
+  return total;
 }
 
 function splitRuntimeEntriesForCompactSelection(

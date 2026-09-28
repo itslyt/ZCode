@@ -523,3 +523,69 @@ CC 有 `precomputeCompactionEnabled`：压缩触发前就预先算好摘要，�
 ZCode 没有这一层，压缩的完整耗时（实测 `compact.completed` 的 `durationMs` 最长 **114,619ms**，
 即约 115 秒）直接落在对话主路径上。这是四家对比里 ZCode 最明显的能力缺口，
 但实现成本高（需要在触发前预测压缩时机），本轮不做。
+
+## 13. 保留粒度：从「固定 1 轮」改为「token 预算内的整轮」（2026-09-28）
+
+### 13.1 问题与单位纠正
+
+`compact-selection.ts` 原先对自动/被动压缩固定保留 **1 个 assistant 轮**：
+
+```ts
+const baseGroupsToPreserve = split.shouldPreserveRecent && split.groups.length > 1 ? 1 : 0;
+```
+
+**先纠正一个我自己搞错的单位。** 先前我以「每 turn 工具调用 p50=19、p90=121、max=556」
+论证「1 轮可能塞上百个工具结果」，那是 **user-turn 口径**。压缩的保留单位是
+**assistant 轮**（`groupByAssistantStartedRounds` 按 assistant 切分），按同口径重测：
+
+```text
+按 assistant 轮分组（3 个长会话）：
+  每轮 token      : 中位 1.0–1.6K   p90 4.5–5.4K   max 20.6K
+  每轮工具结果数  : 中位 1          p90 2          max 4
+```
+
+所以「保留 1 轮」的实际语义是**典型只留 ~1K token**——不是太多，而是**几乎等于不留**；
+而压缩后的可用预算（摘要输出上限 20K）远大于它。两个口径差一个量级，先前结论方向反了。
+
+### 13.2 改法
+
+新增 `retainTokens`（默认 `DEFAULT_COMPACT_RETAIN_TOKENS = 20_000`）：
+先把下限（≥1 轮 / 显式 `minimumGroupsToPreserve`）补齐，再从尾往前**整轮**累计，
+只要不超过预算就继续多留；单轮即超预算时退化为 1 轮。
+
+```ts
+// 下限优先于预算：它编码「至少留最近一轮」这类硬要求
+const floor = Math.min(input.floorGroups, input.maxGroups);
+let kept = floor;
+let accumulated = sumLastGroupTokens(...);
+while (kept < input.maxGroups) {
+  const nextTokens = estimateRuntimeEntryTokens(groups[groups.length - kept - 1], ...);
+  if (accumulated + nextTokens > budget) break;
+  accumulated += nextTokens;
+  kept += 1;
+}
+```
+
+- **保持整轮**：不切断工具配对（`tool_use` / `tool_result` 同轮进出）。
+- **单位与量分离**：「轮」仍是语义单位（保证配对完整），「预算」控制容量。
+- 20K 的取法与 Codex 的 `COMPACT_USER_MESSAGE_MAX_TOKENS = 20_000` 同量级，
+  远低于 dsh 的 16%(≈68K)——**故意偏保守**：保留越多，压缩后越可能立即再次超阈值。
+
+实测行为（构造数据）：
+
+```text
+30 轮 × ~1K token/轮  → 保留 19 轮 / ~19K token
+100 轮 × ~1.5K/轮     → 保留 13 轮 / ~19.5K token
+10 轮 × ~20K/轮       → 保留 1 轮  / ~20K token
+```
+
+即「无论多少轮，保留量稳定在预算附近」。
+
+**测试**：`core/test/compact-retention-budget.test.ts` 5 条（预算内多留、超预算退化为 1 轮、
+显式收窄、手动压缩不保留、显式下限优先于预算）。
+
+### 13.3 仍未做
+
+`selectCompactEntriesAfterPromptTooLong` / `...ForInitialPromptTooLong` 这两条
+PTL 重试路径仍按「轮数」扩容（它们的目标是精确覆盖 overflow 缺口，改预算意义不大），
+本轮不动。若后续发现 PTL 重试后保留量异常，再看这里。
