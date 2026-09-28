@@ -13,8 +13,27 @@ export interface SerializedLogError {
 export type SerializableLogEntry = Record<string, unknown>;
 
 export class DefaultLogRedactor implements LogRedactor {
+  /**
+   * 凭据形键名（保持原有强度，不因为豁免计数字段而放宽）。
+   */
   private readonly sensitiveKeyPattern =
     /(?:api[-_]?key|authorization|cookie|credential|password|secret|token)/i;
+
+  /**
+   * 计数字段的显式豁免名单。
+   *
+   * 这些键含字面 `token`，但不是凭据而是度量值，忽略它们会让 microcompact 的
+   * 回收效果在日志里完全不可观测：
+   * - 曾误伤：`inputTokens` / `totalTokens` / `tokensSaved` /
+   *   `preMicrocompactTokenCount` 等一律被写成 `[Redacted]`，
+   *   导致「microcompact 每次实际回收多少 token」无从统计。
+   *
+   * 采用白名单而非放宽 `token` 正则：凭据侧（`authToken` / `refresh_token` /
+   * `tokenValue` 之类）的识别强度不变，只对已知的度量字段开口。
+   * 新增度量字段时在此追加。
+   */
+  private readonly tokenMetricKeyPattern =
+    /(?:Tokens|TokenCount|tokensSaved|percentTokens|tokenizer|tokenMethod|maxOutputTokens)$/i;
 
   redact(value: unknown): unknown {
     return this.redactValue(value, new WeakSet(), 0);
@@ -39,7 +58,7 @@ export class DefaultLogRedactor implements LogRedactor {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>).map(([key, entryValue]) => [
         key,
-        this.sensitiveKeyPattern.test(key)
+        this.sensitiveKeyPattern.test(key) && !this.tokenMetricKeyPattern.test(key)
           ? "[Redacted]"
           : this.redactValue(entryValue, seen, depth + 1),
       ]),
