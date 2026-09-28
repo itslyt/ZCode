@@ -62,13 +62,16 @@ test("Read 结果被清除时保留 file/offset/limit 重取指针", () => {
   assert.ok(text.includes("limit=50"), "指针应含 limit");
 });
 
-test("Bash 结果被清除时不给指针（无结构化参数可还原）", () => {
+test("读文件类 Bash 命令被清除时还原为 Read 指针", () => {
   const messages: Msg[] = [
     { role: "user", content: "start" },
     {
       role: "assistant",
       content: "call",
-      toolCalls: [{ id: "call-bash", name: "Bash", input: { command: "cat a.ts" } }],
+      // 典型场景：早期因 Read 短路而被迫用 sed 读源码范围
+      toolCalls: [
+        { id: "call-bash", name: "Bash", input: { command: "sed -n '676,760p' src/host/x.ts" } },
+      ],
     },
     { role: "tool", content: "x".repeat(4000), toolCallId: "call-bash", toolName: "Bash" },
     {
@@ -88,7 +91,68 @@ test("Bash 结果被清除时不给指针（无结构化参数可还原）", () 
   const cleared = result.messages.find((m) => m.toolCallId === "call-bash") as Msg | undefined;
   assert.ok(cleared);
   const text = contentOf(cleared);
-  assert.equal(text, MICROCOMPACT_CLEARED_TOOL_RESULT_PREFIX, "Bash 清除后应只有裸标记");
+  assert.ok(text.startsWith(MICROCOMPACT_CLEARED_TOOL_RESULT_PREFIX), "应以清除标记开头");
+  assert.ok(text.includes('file_path="src/host/x.ts"'), `指针应含文件路径（实际：${text}）`);
+  assert.ok(text.includes("offset=676"), "指针应含 offset");
+  assert.ok(text.includes("limit=85"), "指针应含 limit");
+});
+
+test("非读文件类 Bash 命令仍只有裸标记", () => {
+  const messages: Msg[] = [
+    { role: "user", content: "start" },
+    {
+      role: "assistant",
+      content: "call",
+      toolCalls: [
+        { id: "call-bash", name: "Bash", input: { command: "sqlite3 db.sqlite 'select 1'" } },
+      ],
+    },
+    { role: "tool", content: "x".repeat(4000), toolCallId: "call-bash", toolName: "Bash" },
+    {
+      role: "assistant",
+      content: "call2",
+      toolCalls: [{ id: "call-bash2", name: "Bash", input: { command: "ls" } }],
+    },
+    { role: "tool", content: "y".repeat(4000), toolCallId: "call-bash2", toolName: "Bash" },
+  ];
+
+  const result = maybeLocalMicrocompactMessages({
+    config: { enabled: true, thresholdTokens: 1, keepRecentToolResults: 1 },
+    messages,
+  });
+
+  const cleared = result.messages.find((m) => m.toolCallId === "call-bash") as Msg | undefined;
+  assert.ok(cleared);
+  assert.equal(contentOf(cleared), MICROCOMPACT_CLEARED_TOOL_RESULT_PREFIX);
+});
+
+test("管道/重定向的 Bash 命令不生成指针（避免错误指引）", () => {
+  const messages: Msg[] = [
+    { role: "user", content: "start" },
+    {
+      role: "assistant",
+      content: "call",
+      toolCalls: [
+        { id: "call-bash", name: "Bash", input: { command: "grep -n foo a.ts | uniq -c" } },
+      ],
+    },
+    { role: "tool", content: "x".repeat(4000), toolCallId: "call-bash", toolName: "Bash" },
+    {
+      role: "assistant",
+      content: "call2",
+      toolCalls: [{ id: "call-bash2", name: "Bash", input: { command: "ls" } }],
+    },
+    { role: "tool", content: "y".repeat(4000), toolCallId: "call-bash2", toolName: "Bash" },
+  ];
+
+  const result = maybeLocalMicrocompactMessages({
+    config: { enabled: true, thresholdTokens: 1, keepRecentToolResults: 1 },
+    messages,
+  });
+
+  const cleared = result.messages.find((m) => m.toolCallId === "call-bash") as Msg | undefined;
+  assert.ok(cleared);
+  assert.equal(contentOf(cleared), MICROCOMPACT_CLEARED_TOOL_RESULT_PREFIX);
 });
 
 test("带指针的清除内容不会被二次清除（幂等）", () => {

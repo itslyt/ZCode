@@ -279,7 +279,13 @@ Takumi 的 90% 论证指出：在该路由上比例**同时约束输出预算**�
 - `Read` → `Re-fetch with: Read(file_path="..." offset=... limit=...)`
 - `Grep` → `Re-fetch with: Grep(pattern="...", path="...")`
 - `Glob` → `Re-fetch with: Glob(pattern="...", path="...")`
-- 其余工具（含 Bash，参数无结构化语义）→ 维持裸标记，不给指针。
+- **`Bash` 只读读文件类命令** → 还原为等价的 `Read` 指针（见 §8.5）
+- 其余工具（结构参数无法还原为可执行指令）→ 维持裸标记
+
+> **修正（原设计）**：本节原先写「Bash 参数无结构化语义，维持裸标记」，已证伪。
+> `collectBashReadFileSources`（`tool/handlers/bash-read-file-sources.ts:44`）已能把
+> `cat`/`sed -n`/`head`/`tail`/`grep` 解析为 `{filePath,startLine,endLine,tailLines}`，
+> 且是纯函数、无 IO —— 即读文件类 Bash 命令**有**结构化语义。研究见 §8.5。
 
 `isMicrocompactClearedToolResultContent` 由全等改为**前缀**判断，保证带指针内容不被二次清除（幂等）。
 
@@ -290,9 +296,39 @@ Takumi 的 90% 论证指出：在该路由上比例**同时约束输出预算**�
 
 ### 8.4 验证
 
-`test/microcompact-refetch-pointer.test.ts` 4 条：Read 指针含 file/offset/limit、Bash 不给指针、
-幂等不二次清除、Grep 指针含 pattern/path。连同存量 microcompact/阈值/配对测试共 16 条全绿；
-typecheck / lint（74 警告=基线）/ architecture 0 违规。
+`test/microcompact-refetch-pointer.test.ts` 6 条：Read 指针含 file/offset/limit、
+**读文件类 Bash 命令还原为 Read 指针**、**非读文件类 Bash 仍裸标记**、
+**管道/重定向不生成指针**、幂等不二次清除、Grep 指针含 pattern/path。
+两个方向都验过：把 Bash 分支还原为旧行为后新增用例必失败（`not ok`），修复后全绿。
+
+### 8.5 Bash 重取指针（本次新增）
+
+**问题（实测）**：按 `call_id` 去重，`sess_22501403` 中 Bash 结果 362/368 = 98% 被清除，
+而清除文本是**裸标记**——Read/Grep/Glob 都带 `Re-fetch with:`，只有 Bash/Edit/Write 没有。
+Bash 占比最高且含大量不可确定性重取的一次性信息，被清后模型只能重跑。
+
+**为何原先不给**：§8.2 原假设「Bash 参数无结构化语义」。已证伪：
+`tool/handlers/bash-read-file-sources.ts` 的 `collectBashReadFileSources` 能把
+`cat` / `sed -n A,Bp` / `head -n N` / `tail -n N` / `grep` 解析为
+`{filePath, startLine, endLine, tailLines}`，且是**纯函数、无 IO**，并自带对管道、
+重定向、通配符、非读文件命令的拒绝。
+
+**实现**：新增 `buildBashReadRefetchPointer(command)`（同文件，纯函数）：
+
+- 恰好解析出 1 个文件源时才生成指针；否则返回 `undefined` → 回退裸标记
+- `sed -n A,Bp` → `Read(file_path="..." offset=A limit=B-A+1)`
+- `head -n N` → `Read(file_path="..." limit=N)`（`offset=1` 为 Read 默认值，省略）
+- `cat` → `Read(file_path="...")`
+- `tail -n N` / `grep` → 只得 `file_path`（「最后 N 行」与行号集合无法表达为单一 Read 范围），
+  仍显著优于裸标记
+
+`compact/microcompact.ts` 的 `buildRefetchPointer` 新增 `Bash` 分支调用它。
+依赖方向：`zcode-cli` 在 `architecture-policy.yaml` 中是单一模块（`managed: false`），
+且 `tool/` 不反向依赖 `compact/`（已核实无环）。
+
+**未做**：附完整输出落盘路径（原方案 b）。阻塞点：请求侧 tool 消息只保留
+`[role, content, toolCallId, toolName, isError]`，`LocalMicrocompactMessage` 无 metadata 字段，
+拿不到 `artifactPath`。需先改请求侧消息形状才能实现，本轮不做。
 
 ## 9. 与 Read 未变更短路的关系（指针，不写因果）
 
@@ -304,10 +340,58 @@ Read 的未变更短路（`Wasted call — ... Refer to that earlier tool_result
 
 另有两条与压缩直接相关的实测（详见 `read-unchanged-stub.md` §6，此处只记结论）：
 
-- **不要把 Bash 移出可压缩列表。** 实测 Bash 结果有 97%（334/342）被本机制清空，
-  Read/Grep 为 0%。清 Bash 正是本机制的主要职责，撤出会让原始输出永久堆积。
+- **不要把 Bash 移出可压缩列表。** 实测（按 `call_id` 去重）Bash 结果 362/368 = 98% 被本机制清空，
+  Read/Grep 也接近 100%。清工具输出正是本机制的主要职责，撤出会让原始输出永久堆积。
+- **待办：Bash 清除后是裸标记，应补重取指针。** 同一实测：Read/Grep 的清除文本带
+  `Re-fetch with: ...`，而 Bash/Edit/Write 只有 `[Old tool result content cleared]`。
+  Bash 占比最高且含大量不可确定性重取的一次性信息（sqlite/日志/构建输出）。
+  两条线索都可得：`input.command` 在清除时已传入，只读命令可还原为可检索指令
+  （`isRuntimeReadOnlyBashCommand`，`bash-semantics.ts:39`）；全文落盘的 `artifactPath`
+  已在 part metadata（`tool-part-metadata.ts:28`）。详见 `read-unchanged-stub.md` §6.5。
 - **不需要 eviction 摘要。** 实测 240 个请求全程无全量 compact（`messagesKind` 只有
   `tail`/`delta`），要解决的问题未出现。
 
 > 计数纪律：引用任何 rollout 数字前必须按 `call_id` 去重。每个请求带全量历史，
 > 未去重的原始出现次数会放大十几倍（实测出现过 816 与去重后 36 的差异）。
+
+## 10. 外部对照：grep/find shadow 机制（结论：不引入）
+
+对照一份逆向 MyFlicker 工具层的文档（`~/Documents/WorkDir/myflicker-tool-layer.md`），
+其核心是「用 shell 函数 + `ARGV0` 伪装接管 Bash 的 grep/find，并同步把内置搜索工具从
+工具面移除」。**该机制本仓已有，且本 fork 主动关闭**：
+
+- 实现：`adapters/src/exec/embedded-search-prelude.ts`（`unalias grep` + `ARGV0=ugrep` /
+  `exec -a`；find 走 bfs；含 `zgrep` 之类 bypass 名单与 `-z/-Z/--null` 豁免）。
+- 二进制：`Resources/tools/{ugrep,bfs,ripgrep/rg}` 随包分发；`scripts/native-search-tools-config.mjs`
+  从源码静态构建 ugrep（pcre2/zlib/bzip2/zstd/brotli 静态入链），
+  已避开该文档记录的那类跨机器 dyld 事故。
+- 开关：`core/src/embedded-search/capability.ts:11` 的 `ENABLE_EMBEDDED_SEARCH_BRANCH = false`，
+  注释说明本 fork 要保留专用 Glob/Grep 工具，且开关是「工具面移除」三处的共同源头。
+
+### 10.1 为何不引入
+
+1. **它不是新增能力，而是另一个已存在的取舍**。该文档用 shadow 是因为它要把
+   `NEVER invoke grep as bash command` 这类硬规则落地 —— 硬规则与 shadow 是同一事的
+   两面，shadow 是兼底。只抄 shadow 不抄「移除内置搜索工具」会出现两套搜索并行，
+   正是 `capability.ts` 注释列为错误的状态。
+2. **它解决不了观测到的主要浪费**。实测本会话 107 次 Bash `grep`/`rg`（按 `call_id` 去重）中，
+   多数是 `sqlite3` 查库与管道聚合（`grep ... | uniq -c | sort`），这些 ugrep 同样做不到。
+3. **它是基础设施级改动**，影响所有 shell 命令；需在三平台各自验证 `--version` 自检、
+   bypass 名单与 `ARGV0` 行为，风险收益不成比例。
+
+### 10.2 文档中值得保留的两条方法结论
+
+- **措辞无效、必须靠机制。** 该文档 §5.1 记录：即使在工具描述里写 `ALWAYS`/`NEVER`，
+  模型仍会调用 Bash grep；它最终靠 shadow 兜底。与本仓实测（Grep 描述写
+  `Prefer this over grep/rg via Bash`，实际仍以 Bash 为主）一致。以后讨论「用提示词约束
+  工具选择」时，直接引用此结论，不要重做验证。
+- **原生二进制必须静态构建。** 该文档 §2.4 记录动态链接版本在另一台机器上 dyld 崩溃，
+  改静态构建后才稳定。本仓 `native-search-tools-config.mjs` 已是此做法，不要回退为动态链接。
+
+### 10.3 该文档其余章节的对照结果
+
+| 章节                                             | 对照结果                                                                                                                                                                                      |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| §3 输出三段管理（内联上限 / 保尾 / 落盘 + 路径） | 本仓已有且更细：`bash.ts:480-492` 的 `resultBudget`（`maxModelBytes: 30_000`、`preview.direction: "tail"`、`strategy: "artifact"`、`retention: "session"`）                                   |
+| §2.5 子进程环境清洗（删 18 类凭据）              | **不适用**。它是云端沙箱（执行环境即隔离边界）；本仓是本地 IDE，Bash 跑在用户机器上，删用户凭据会破坏其真实工作流。本仓只清自己注入的运行时变量（`sanitizeZCodeRuntimeEnvInPlace`），边界正确 |
+| §4 WebSearch/WebFetch 数据面                     | **未核实**（按用户要求跳过），不作结论                                                                                                                                                        |
