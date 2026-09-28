@@ -1,3 +1,4 @@
+import { READ_SESSION_CONTEXT_TOOL_NAME } from "@zcode/contracts";
 import {
   CompactPhase,
   CompactReason,
@@ -516,7 +517,12 @@ async function compactActiveConversationImpl(
 
       const summaryMessageId = createMessageId();
       const summaryMessageContent = buildCompactSummaryMessage(persistedSummary, {
-        sessionId: this.sessionId,
+        // 回读通道按**实际注册结果**声明：ReadSessionContext 不在本 fork 的默认工具面里
+        // （CODING_ONLY_TOOLS 不含它），写死指引等于指一个模型没有的工具。见 §14.3。
+        recoveryPointer: {
+          sessionId: this.sessionId,
+          canReadSessionContext: this.getToolRegistry().has(READ_SESSION_CONTEXT_TOOL_NAME),
+        },
         suppressFollowup: true,
       });
       // Continue 没有对应 Session message；无 store 的统计也不能把它计入保留记录。

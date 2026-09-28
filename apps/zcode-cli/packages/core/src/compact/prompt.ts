@@ -137,8 +137,18 @@ export function buildCompactSummaryMessage(
     replStateCleared?: boolean;
     suppressFollowup?: boolean;
     transcriptPath?: string;
-    /** 本会话 id：告诉模型压缩掉的原文仍可用 ReadSessionContext 回读。 */
-    sessionId?: string;
+    /**
+     * 告诉模型「被压掉的原文仍在」，把「看不见」与「不存在」分开。
+     *
+     * `canReadSessionContext` 必须来自**实际注册结果**（`registry.has`），不能假设
+     * 该工具在场：本 fork 的默认工具面由 CODING_ONLY_TOOLS 收窄，名单里**没有**
+     * ReadSessionContext。曾经无条件写死「call ReadSessionContext」的文案，指向了
+     * 一个模型没有的工具——与 024c6f3 修掉的「描述指向不存在的工具」是同一类缺陷。
+     */
+    recoveryPointer?: {
+      sessionId: string;
+      canReadSessionContext: boolean;
+    };
   } = {},
 ): string {
   let message = `This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
@@ -151,9 +161,15 @@ ${formatCompactSummary(summary)}`;
 
   // 压缩把旧消息从模型面抹掉，但原文仍在会话库里（message/part 表不删）。
   // 不告知这条通道，模型会把“看不见”当成“不存在”，进而重做已完成的工作或凭空猜测。
-  // 用已有的 ReadSessionContext（built-in，始终在工具面）回读本会话，不给模型新增工具。
-  if (options.sessionId) {
-    message += `\n\nThe earlier messages were removed from this conversation but are still persisted. To retrieve specific details from before compaction (exact code snippets, error strings, file contents, or earlier decisions), call ReadSessionContext with sessionId="${options.sessionId}" and a focused query. Read only what you need — this is your own session history, not another session.`;
+  //
+  // 只承诺**本运行时确实有**的通道：ReadSessionContext 在本 fork 的默认工具面里缺席，
+  // 那就不能叫它。两种文案都不指向不存在的工具，也不新增工具。
+  if (options.recoveryPointer) {
+    const { sessionId, canReadSessionContext } = options.recoveryPointer;
+    const how = canReadSessionContext
+      ? `call ReadSessionContext with sessionId="${sessionId}" and a focused query`
+      : "read it back from your own session store (the conversation is persisted; only the projection sent to you was trimmed)";
+    message += `\n\nThe earlier messages were removed from this conversation but are still persisted. To retrieve specific details from before compaction (exact code snippets, error strings, file contents, or earlier decisions), ${how}. Read only what you need — this is your own session history, not another session.`;
   }
 
   if (options.recentMessagesPreserved) {
