@@ -13,20 +13,21 @@ export const MICROCOMPACT_CLEARED_TOOL_RESULT_PREFIX = "[Old tool result content
 export const MICROCOMPACT_CLEARED_TOOL_RESULT_MESSAGE = "[Old tool result content cleared]";
 export const DEFAULT_MICROCOMPACT_KEEP_RECENT_TOOL_RESULTS = 5;
 const DEFAULT_MICROCOMPACT_IDLE_THRESHOLD_MINUTES = 60;
-export const DEFAULT_MICROCOMPACT_MIN_TOKEN_SAVINGS = 256;
+// 提高至 2000 的依据：对 196 条真实 applied 事件模拟，阈值 256→2000 把清除**操作数**
+// 从 332/931 降到 107/304（减约 1/3~1/9），而回收总量基本不变（重尾分布，
+// 少数大事件贡献绝大多数回收量）。注意：它只减少「隔多久清一次」，
+// **不减少最终被销毁的结果数**（清空不可逆且每次清「除最新 N 条外全部」）——
+// 真正保住证据的是可压工具名单，见 DEFAULT_MICROCOMPACT_COMPACTABLE_TOOLS。
+export const DEFAULT_MICROCOMPACT_MIN_TOKEN_SAVINGS = 2_000;
 export const DEFAULT_MICROCOMPACT_THRESHOLD_RATIO = 0.9;
 export const DEFAULT_MICROCOMPACT_THRESHOLD_BUFFER_TOKENS = 2_000;
-export const DEFAULT_MICROCOMPACT_COMPACTABLE_TOOLS = [
-  "Read",
-  "Bash",
-  "Grep",
-  "Glob",
-  "WebFetch",
-  "WebSearch",
-  "Edit",
-  "Write",
-  "ApplyPatch",
-] as const;
+// 只压「清除后能精确重取」的工具。按真实工具入参实测（3 个长会话）：
+//   Read / Grep / Glob 的重取指针生成率 100%（file_path / pattern 可从入参完全还原）
+//   Bash 为 0%，且其输出 97.5% 未落盘（无 <persisted-output>）→ 清掉就是真丢，无法回读
+// 排除 Bash 后：被销毁的结果数从 ~92% 降到 ~15%，回收量仍保留约 40%。
+// 这正是本 fork 早期“清掉后反复重跑命令”的根因——不是清得太早，是清了一个不可重取的类别。
+// Edit / Write / ApplyPatch 同样无指针（且体积小），一并移出。
+export const DEFAULT_MICROCOMPACT_COMPACTABLE_TOOLS = ["Read", "Grep", "Glob"] as const;
 
 export interface LocalMicrocompactPolicyConfig {
   enabled?: boolean;

@@ -108,20 +108,17 @@ export function resolveLocalMicrocompactConfig(
   const fullCompactThreshold = getAutoCompactThreshold(config);
   return {
     ...config.microcompact,
-    // 默认关闭（opt-in，与上游一致）。
+    // 默认开启（本 fork 自选）。
     //
-    // 历史：上游是 `=== true`（默认关）。本 fork 曾改成 `!== false`（默认开），
-    // 理由是上游那版日志里一直 `reason: "disabled"`、这层从未生效。
+    // 历史：上游 `=== true`（opt-in）→ 本 fork 改 `!== false`（默认开）→ 因「中位只回收
+    // 800 token 却销毁证据」回退为默认关 → 2026-09-28 重新开启，但换成**只压可重取的类别**。
     //
-    // 改回默认关的原因（实测 2026-09-28 日志，196 条 applied 事件，来自 2 个长会话）：
-    //   tokensSaved 中位 800、p90 2276、max 610791；clearedMessageCount 中位 2
-    //   → 典型情况是「为回收不到 1K token 就销毁工具结果证据」，性价比接近纯亏；
-    //   且触发极频繁（当日 model.request.completed 共 5825 条，其中 193 条 token_pressure）。
-    //   注意：收益是重尾分布（max 610K），并非每次都很小——所以这是权衡取舍，
-    //   不是无条件正收益；需拿到真实 token 口径的对照数据后再定。
-    //
-    // 保留显式开启通道，便于对照实验与后续按数据决策。
-    enabled: config.microcompact?.enabled === true,
+    // 关键修正（对真实数据的模拟）：先前以为「提高 minTokenSavings 就能少销毁证据」，
+    // 实测不成立——清空不可逆且每次清「除最新 5 条外全部」，阈值 256→2000 时
+    // 销毁条数仍是 ~92%，只是操作数从 332 降到 107。
+    // 真正让销毁量从 ~92% 降到 ~15% 的是**把不可重取的 Bash/Edit/Write 移出可压名单**，
+    // 见 DEFAULT_MICROCOMPACT_COMPACTABLE_TOOLS；阈值只负责降低触发频率。
+    enabled: config.microcompact?.enabled !== false,
     thresholdTokens:
       config.microcompact?.thresholdTokens ??
       buildDefaultMicrocompactThreshold(fullCompactThreshold),

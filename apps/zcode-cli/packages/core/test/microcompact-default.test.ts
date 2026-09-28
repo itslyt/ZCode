@@ -4,15 +4,15 @@ import { resolveLocalMicrocompactConfig } from "../src/runtime/methods/microcomp
 import { buildDefaultMicrocompactThreshold } from "../src/compact/microcompact.js";
 import { getAutoCompactThreshold } from "../src/compact/policy.js";
 
-// 本 fork 默认关闭 microcompact（opt-in，与上游一致），见 specs/context-compaction-optimization.md §3.5。
-// 显式 `enabled: true` 仍可开启，用于对照实验与后续按真实数据决策。
+// 本 fork 默认开启 microcompact，但**只压可重取的类别**（Read/Grep/Glob），
+// 见 specs/context-compaction-optimization.md §3.5。
 
-test("未配置时 microcompact 默认关闭", () => {
-  assert.equal(resolveLocalMicrocompactConfig({}).enabled, false);
+test("未配置时 microcompact 默认开启", () => {
+  assert.equal(resolveLocalMicrocompactConfig({}).enabled, true);
 });
 
-test("未配置 microcompact 字段时也默认关闭", () => {
-  assert.equal(resolveLocalMicrocompactConfig({ contextWindow: 450_000 }).enabled, false);
+test("未配置 microcompact 字段时也默认开启", () => {
+  assert.equal(resolveLocalMicrocompactConfig({ contextWindow: 450_000 }).enabled, true);
 });
 
 test("显式 enabled:false 仍然关闭（保留关闭开关）", () => {
