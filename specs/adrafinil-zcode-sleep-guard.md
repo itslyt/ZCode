@@ -45,8 +45,12 @@ ZCode turn 失败/中断 ──（无 hook）──────▶ 等 TTL 到�
 ```
 
 - **唯一状态所有者**：Adrafinil daemon 的断言注册表。ZCode 侧不维护任何状态，hook 只做 acquire/release 转发，天然幂等。
-- **为何 UserPromptSubmit 要先 release 再 acquire**：`release` 清掉本会话上一轮的残留 hold（失败轮次留下的），
-  `acquire` 重建新的 TTL 窗口。**顺序不能反**——反过来会刚建立就被释放。两个钩子同属一个 `hooks` 数组，
+- **为何 `UserPromptSubmit` 要先 release 再 acquire**：两个理由，缺一不可——
+  1. **清残留**：`release` 清掉本会话上一轮失败留下的 hold（失败轮次不发 `Stop`，见下条）；
+  2. **重置 24h 熔断计时**：重复 acquire 不会更新 `acquiredAt`，而 24h 硬熔断正是按它算。
+
+  只靠重复 acquire 虽然能续 `expiresAt`（见事实表第 5 条），但上面两点都做不到。
+  **顺序不能反**——反过来会刚建立就被释放。两个钩子同属一个 `hooks` 数组，
   按数组顺序执行（`core/src/hooks/runner.ts` 的 for 循环），顺序可靠。
 - **失败路径无 hook（本方案的固有缺口）**：ZCode 只在成功路径触发 `Stop`；模型请求失败/中断走
   `turn.ts` 的 catch 块，**不调用任何 hook**。所以失败轮次的 hold 只能等 TTL 自动到期（见第五节）。
@@ -66,12 +70,14 @@ ZCode turn 失败/中断 ──（无 hook）──────▶ 等 TTL 到�
 | 2 | 因第 1 条，运行中断言记录的 `pid` 是 **`-1`**                                              | Adrafinil 的**进程死亡释放**与 **90 秒 CPU 空闲释放对你都不生效**。必须靠 `--ttl` 兜底（见第 4 条与第五节的兜底表）。 |
 | 3 | `--ttl` **只认纯秒数**，`1h`/`30m` 会被拒（实测 `ignoring invalid --ttl '1h'`）            | 写 `5400` 而不是 `1.5h`。                                                                                         |
 | 4 | `--ttl` 会被设置项 **`manualHoldMaxHours`（默认 4h）硬夹住**                               | 实测请求 `86400` 实存 `14400`。要更长须改 Adrafinil 设置，改钩子无效。本方案用的 5400s 低于 4h，不受影响。        |
-| 5 | **重复 acquire 不刷新 TTL**，但 **release 后再 acquire 会刷新**（实测 `acquiredAt` 前移） | 这正是本方案每轮先 release 再 acquire 的前提——每轮都是全新 TTL 窗口，不会因不刷新而过期。无此前提则 TTL 不能当兼底用。 |
+| 5 | 重复 acquire **会刷新** `expiresAt` 与 `lastActivityAt`，但 **`acquiredAt` 保持首次值不变**（`AssertionRegistry.acquire` 显式传 `acquiredAt: existing.acquiredAt`） | 续期有效，但 **`release`+`acquire` 仍不可省**：① 只有 release 能清掉失败轮次残留的 hold；② 24h 硬熔断按 `acquiredAt` 算（`IdleReleaseEvaluator` 用 `now - acquiredAt > maxAge`），只 acquire 不 release 的长会话会在首次 acquire 满 24h 时被熔断一次。 |
+| 5b | **测量陷阱：重复 acquire 不落盘**——daemon 对重复 acquire 不写 `state.json`（`Daemon.swift` ：“Duplicate acquires are no-ops … don't log/persist them”） | **验证 TTL 必须用 `adrafinil status --json` 直查 daemon，不能读 `state.json`**。读文件会得出“重复 acquire 不刷新”的错误结论（本文件早期版本就错在这里）。 |
 | 6 | 不带 `--ttl` 时 `expiresAt` 为 **`None`**（无 TTL）                                        | 那样只剩 24h 硬熔断兜底，**不推荐**。始终显式给 `--ttl`。                                                          |
 | 7 | `agentWaitingPolicy: grace`（等用户输入时暂缓释放）**对 zcode 无效**                       | 其 `SessionWaitEvaluator` 的 key 前缀硬编码为 `claude-code:`，`zcode:` 开头的 key 被直接跳过。见第六节。            |
 | 8 | 钩子进程的 PATH 只有 `/usr/bin:/bin:/usr/sbin:/sbin`（桌面 App 从 Finder/Dock 启动时）      | 钩子命令**必须写绝对路径**，不能写 `adrafinil`。同样的坑已记录在 `scripts/hooks/run-todo-closeout.sh` 的注释里。      |
 | 9 | 钩子配置在 **CLI 进程创建时**读入（`bootstrap/src/app/create-app.ts` → `runtime-config.ts`） | 改完配置**必须重启 ZCode**才生效，不是热加载。                                                                      |
 | 10 | 同一事件下多个钩子条目**按数组顺序全部执行**，互不覆盖（`core/src/hooks/runner.ts` 的 for 循环） | 新增条目不会顶掉已有的 `run-todo-closeout.sh`。**顺序有语义**：`UserPromptSubmit` 下 release 必须在 acquire 前。 |
+| 10b | 每轮 acquire 都把 `expiresAt` 重新撑满一个完整 TTL 窗口 | `--ttl 5400` 因此只在“某轮之后再无下一轮”时才真正兜底。想在任务进行中不被放开，算的是**单轮跨度**而非总时长。 |
 | 11 | 模型请求失败/中断走 `turn.ts` 的 catch 块，**不触发任何 hook**（已核实 catch 块内无 hook 调用） | 失败轮次的 hold 无 release，只能等 TTL。这是本方案的固有缺口，也是 TTL 要设短的原因（见第五节）。 |
 
 ## 四、执行清单（新机器上照做）
