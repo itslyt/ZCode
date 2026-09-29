@@ -52,6 +52,11 @@ import {
   type ChatStartPlanBalanceConfig,
 } from "@/chat-input-toolbar/StartPlanContextBalance.js";
 import { runContextPanelActionWithClose } from "@/chat-input-toolbar/contextPanelAction.js";
+import {
+  buildContextUsageBreakdownSegments,
+  type ContextUsageBreakdownSegment,
+  type ContextUsageBreakdownSource,
+} from "@/chat-input-toolbar/contextUsageBreakdown.js";
 import { coordinateCodingPlanQuotaResetAutoPlay } from "@/chat-input-toolbar/codingPlanQuotaResetAutoPlay.js";
 import { formatTokenCountK } from "@/lib/tokenNumberFormat.js";
 import {
@@ -63,16 +68,6 @@ import {
   resolveContextTriggerTooltipKind,
   shouldDismissContextQuotaResetOpportunityReminder,
 } from "@/chat-input-toolbar/contextQuotaResetOpportunityReminder.js";
-
-type ContextUsageBreakdownSource = ZCodeContextUsageBreakdownItem["source"];
-
-interface ContextUsageBreakdownSegment {
-  chars: number;
-  percent: number;
-  source: ContextUsageBreakdownSource;
-  /** 估算 token；旧快照缺该字段时为 0，此时只展示占比。 */
-  tokens: number;
-}
 
 const CONTEXT_PROGRESS_TONE_COLORS = [
   "var(--color-usage-chart-1)",
@@ -133,62 +128,6 @@ const BREAKDOWN_SOURCE_LABEL_ID: Record<ContextUsageBreakdownSource, string> = {
   system_tool_schemas: "chat.contextUsage.breakdown.systemTools",
   mcp_tool_schemas: "chat.contextUsage.breakdown.mcpTools",
 };
-
-const BREAKDOWN_SOURCE_ORDER: Record<ContextUsageBreakdownSource, number> = {
-  messages: 0,
-  system_prompt: 1,
-  meta_user_context: 2,
-  skills: 3,
-  tool_prompt: 4,
-  system_tool_schemas: 5,
-  mcp_tool_schemas: 6,
-};
-
-function buildContextUsageBreakdownSegments(
-  breakdown: readonly ZCodeContextUsageBreakdownItem[] | undefined,
-  usedTokens: number,
-): ContextUsageBreakdownSegment[] {
-  const charsBySource = new Map<ContextUsageBreakdownSource, number>();
-  const tokensBySource = new Map<ContextUsageBreakdownSource, number>();
-  for (const item of breakdown ?? []) {
-    if (!Number.isFinite(item.chars) || item.chars <= 0) {
-      continue;
-    }
-    charsBySource.set(item.source, (charsBySource.get(item.source) ?? 0) + item.chars);
-    tokensBySource.set(item.source, (tokensBySource.get(item.source) ?? 0) + (item.tokens ?? 0));
-  }
-
-  const totalChars = [...charsBySource.values()].reduce((sum, chars) => sum + chars, 0);
-  if (totalChars <= 0) {
-    return [];
-  }
-
-  // 占比用估算 token 算（旧快照只有 chars 时退回字符占比）。
-  const totalTokens = [...tokensBySource.values()].reduce((sum, tokens) => sum + tokens, 0);
-  const useTokens = totalTokens > 0;
-
-  return [...charsBySource.entries()]
-    .map(([source, chars]) => {
-      const percent = useTokens
-        ? (tokensBySource.get(source) ?? 0) / totalTokens
-        : chars / totalChars;
-      return {
-        chars,
-        percent,
-        source,
-        // 分项 K 按 provider 实测的 used 缩放：快照里的估算 token 与 provider 口径差得多
-        // （工具 schema 尤其明显），直接用估算值会出现“分项合计 > 顶部已用”的矛盾。
-        tokens:
-          usedTokens > 0 ? Math.round(usedTokens * percent) : (tokensBySource.get(source) ?? 0),
-      };
-    })
-    .sort(
-      (left, right) =>
-        right.tokens - left.tokens ||
-        right.chars - left.chars ||
-        BREAKDOWN_SOURCE_ORDER[left.source] - BREAKDOWN_SOURCE_ORDER[right.source],
-    );
-}
 
 function buildContextUsageProgressSegments(segments: readonly ContextUsageBreakdownSegment[]) {
   return segments.map((segment, index) => ({
@@ -795,12 +734,8 @@ export function ChatContextUsage({
     return formatContextCacheHitRateLabel(renderableTaskUsage?.cache?.hitRate);
   }, [locale, renderableTaskUsage]);
   const breakdownSegments = useMemo(
-    () =>
-      buildContextUsageBreakdownSegments(
-        renderableTaskUsage?.breakdown,
-        renderableTaskUsage?.used ?? 0,
-      ),
-    [renderableTaskUsage?.breakdown, renderableTaskUsage?.used],
+    () => buildContextUsageBreakdownSegments(renderableTaskUsage?.breakdown),
+    [renderableTaskUsage?.breakdown],
   );
   const progressSegments = useMemo(
     () => buildContextUsageProgressSegments(breakdownSegments),
@@ -958,12 +893,13 @@ export function ChatContextUsage({
                             id: BREAKDOWN_SOURCE_LABEL_ID[segment.source],
                           })}
                         </span>
-                        {/* 占比与分项 K 同源（都按估算 token），括号里的数值便于和 provider 口径对账。 */}
+                        {/* 百分比 = 占各分项估算之和的比例（可信）；`~` K 是估算原值，不按 provider 实测缩放，
+                            故分项之和与顶部已用不等——前缀 `~` 即为此意，避免被当成精确值。 */}
                         <span className="ml-auto flex min-w-10 shrink-0 items-baseline justify-end gap-1.5 text-right font-mono text-ui-sm tabular-nums text-foreground">
                           <span>{percentageFormatter.format(segment.percent)}</span>
                           {segment.tokens > 0 ? (
                             <span className="text-foreground-subtlest">
-                              ({formatTokenCountK(segment.tokens)})
+                              (~{formatTokenCountK(segment.tokens)})
                             </span>
                           ) : null}
                         </span>
