@@ -442,7 +442,10 @@ test("§3c 相隔很远的两个编辑仍然分成两个区块", () => {
     { removeFrom: anchorAt(content, 30), removeTo: anchorAt(content, 30), replacementText: "const row30 = 300;" },
   ]);
 
-  assert.match(result.updatedText, /\n\.\.\.\n/);
+  // §7.9.4 把裸 `...` 换成带行号范围的显式省略标记：裸省略号会被模型
+  // 当成文件里的真实内容，而这里必须说清「哪些行没显示、不能编辑」。
+  assert.match(result.updatedText, /omitted \(\d+ lines not shown — do not edit there\)/);
+  assert.doesNotMatch(result.updatedText, /\n\.\.\.\n/, "不再是裸省略号");
   assert.match(result.updatedText, /const row2 = 20;/);
   assert.match(result.updatedText, /const row30 = 300;/);
 });

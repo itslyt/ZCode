@@ -1,7 +1,12 @@
 import { ANCHOR_SEPARATOR, parseAnchor } from "./anchor-hash.js";
 
-/** `N:HASH│content` 的捕获：1 = 锚点，2 = 行内容。 */
-const ANCHOR_PREFIX_PATTERN = new RegExp(`^(\\d+:[0-9A-Za-z]+)${ANCHOR_SEPARATOR}(.*)$`);
+/**
+ * `N:HASH│content` 的捕获：1 = 锚点，2 = 行内容。
+ *
+ * 容忍 `>>> ` 前缀：EditAnchored 的错误回传区用它标问题行，模型可能整行粘进
+ * old_string。只容忍 `>>>` —— `*`/`+`/`-` 在 Markdown 里是列表语义，在这里剥会误伤正文。
+ */
+const ANCHOR_PREFIX_PATTERN = new RegExp(`^(?:>>> )?(\\d+:[0-9A-Za-z]+)${ANCHOR_SEPARATOR}(.*)$`);
 
 export type EditMatchStrategy =
   | "exact"

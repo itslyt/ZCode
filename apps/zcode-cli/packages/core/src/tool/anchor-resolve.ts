@@ -381,10 +381,30 @@ export function buildUpdatedAnchors(
     merged.push({ ...window });
   }
 
-  const blocks = merged.map((window) => renderAnchorLines(lines, window.from, window.to));
+  const blocks = merged.map((window) => ({
+    window,
+    rendered: renderAnchorLines(lines, window.from, window.to),
+  }));
+  // 窗口之间的间隔必须显式标出并写明行号范围：裸 `...` 会被模型当成文件里的省略号，
+  // 甚至按它推「中间大概还有几行」。这里直接说清「哪些行没显示、不能编辑」。
+  const parts: string[] = [];
+  for (let index = 0; index < blocks.length; index += 1) {
+    const block = blocks[index]!;
+    if (index > 0) {
+      const previous = blocks[index - 1]!.window;
+      const missing = block.window.from - previous.to - 1;
+      parts.push(
+        missing > 0
+          ? `... lines ${previous.to + 1}-${block.window.from - 1} omitted (${missing} lines not shown — do not edit there) ...`
+          : "...",
+      );
+    }
+    parts.push(block.rendered.text);
+  }
+
   return {
-    text: blocks.map((block) => block.text).join("\n...\n"),
-    servedHashes: blocks.flatMap((block) => block.servedHashes),
+    text: parts.join("\n"),
+    servedHashes: blocks.flatMap((block) => block.rendered.servedHashes),
   };
 }
 
@@ -407,11 +427,12 @@ export function createAnchorFailureMessage(input: {
 
     case "unserved": {
       // 拒绝回传区域，模型这一步就能改对，不必先 Read 再重发。
-      // 没有行号可用时（裸哈希零命中）无从指路，退回纯文本，不猜区域。
+      // 没有行号可用时（裸哈希零命中）无从指路，不猜区域；但必须说清
+      // 「你的行号/哈希都不在已展示的范围内」，否则模型只会继续猜。
       if (failure.hintLine < 1) {
         return plain([
           `${position} references anchor ${failure.anchor}, which was never shown to you for this file.`,
-          "Read the region first, then copy the anchor from that Read result.",
+          "The hash was never printed for this file, and no line currently carries it — guessing another anchor will fail the same way. Read the range you want to edit, then copy an anchor from that Read result.",
           "No edits were applied.",
         ]);
       }
@@ -449,11 +470,12 @@ export function createAnchorFailureMessage(input: {
       ]);
 
     case "stale": {
+      // 与 unserved 分开：这里哈希**展示过**，只是内容被改。模型拿新锚点重发即可，不必重读。
       const region = formatAnchorRegion(content, hintLine);
       return {
         text: [
-          `${position} anchor ${failure.anchor} no longer exists in the file — the content it pointed at changed.`,
-          "No edits were applied. Resend with one of the current anchors below.",
+          `${position} anchor ${failure.anchor} no longer exists in the file — the line was shown to you, but its content has since changed (an edit or an external change).`,
+          "No edits were applied. Resend with an updated anchor from the region below — no need to re-read the whole file.",
           region.text,
         ].join("\n"),
         servedHashes: region.servedHashes,

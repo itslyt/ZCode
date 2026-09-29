@@ -163,6 +163,7 @@ function readTextRangeResultToOutput({
     throwReadOutputTokenBudgetError(tokenCount, filePath);
   }
 
+  const unseenNotice = formatUnseenLinesNotice(read, offset);
   return normalizeReadTextOutput({
     type: "text",
     filePath,
@@ -173,7 +174,39 @@ function readTextRangeResultToOutput({
     sizeBytes: read.sizeBytes,
     bytesRead: read.bytesRead,
     truncated: read.truncated,
+    // 范围读没读到底时必须说清「还有多少行没看见」。实测 1996 次命中 limit 的读里
+    // 1969 次完全静默——模型据此以为文件只有 200 行，随后按记忆写行号 → unserved。
+    // 复用 partialViewNotice（同一个渲染出口，不新增字段、不动 contracts）。见 §7.9.4。
+    ...(unseenNotice === undefined ? {} : { partialViewNotice: unseenNotice }),
   });
+}
+
+/**
+ * 只在该次读取确实没覆盖到文件尾部时给提示。
+ *
+ * 判据用 `totalLines`（文件真实行数）与本次显示的末行比对，而不是 `truncated`：
+ * 后者表达的是「单行超预算」那类截断，范围读的正常分页它并不为真。
+ */
+export function formatUnseenLinesNotice(
+  read: FileSystemReadTextRangeResult,
+  offset: number | undefined,
+): string | undefined {
+  const shownFrom = offset === 0 ? 1 : read.startLine <= 0 ? 1 : read.startLine;
+  const shownTo = shownFrom + read.lineCount - 1;
+  const total = read.totalLines;
+  if (total <= 0 || shownTo >= total) return undefined;
+
+  const unseen = total - shownTo;
+  const above = shownFrom > 1 ? shownFrom - 1 : 0;
+  const scope =
+    above > 0
+      ? `lines ${shownFrom}-${shownTo} of ${total} (${above} above, ${unseen} below are NOT shown)`
+      : `lines ${shownFrom}-${shownTo} of ${total} (${unseen} below are NOT shown)`;
+  return [
+    `Showing ${scope}.`,
+    `Lines outside this window are UNSEEN — never edit them from guessed line numbers, and Read the range first.`,
+    `Use Read with offset ${shownTo + 1} and limit ${READ_DEFAULT_MAX_LINES} to see more.`,
+  ].join(" ");
 }
 
 function normalizeReadTextOutput(output: ReadTextOutput): ReadTextOutput {

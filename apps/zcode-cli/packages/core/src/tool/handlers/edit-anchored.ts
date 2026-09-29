@@ -70,15 +70,17 @@ const EDIT_ANCHORED_PROVIDER_DESCRIPTION = [
   "",
   // 锚点格式（`N:HASH│` 的含义）由 Read 的描述定义，这里不再重述一句；
   // 保留的是本工具独有的用法与失败语义。见 specs/tool-definition-slimming.md §3.8。
-  // 最后两条是 §3.9 补的「锚点只能从 Read 得到」：一次真实会话的 13 次 unserved
-  // 都源于用 Bash 看内容后自拼哈希，属于事前指引而非工具缺陷。
   "- `remove_from`/`remove_to` bound the range to replace; for a single line pass the same anchor twice.",
   "- The 4-character hash alone (`AB3F`) is accepted when it uniquely identifies a line — no line number needed.",
   "- `replacement_text` replaces the range; use `\"\"` to delete it.",
   "- Every entry is resolved against the file's original content, so entries never displace each other. All-or-nothing.",
   "- Anchors stay valid after edits elsewhere in the file: if line numbers moved, the anchor's hash re-locates it. The result returns fresh anchors for the changed region.",
+  // §3.9 的「锚点只能从 Read 得到」；§7.9 补的三条事前硬约束（借鉴 oh-my-pi）：
+  // 未看见的省略区、行号是原始行号、只改展示过的行。都是事前指引。
   "- Only lines you have already read with Read can be edited — Read is the only source of anchors. Content seen any other way (`cat`, `sed`, a Bash command) has no anchors, so an anchor composed from it will be rejected as never shown.",
-  "- If an anchor is rejected, the error includes the region's current anchors; copy one of those verbatim and retry.",
+  "- Line numbers are the original ones from your latest Read, never shifted by your own edits. A Read that shows lines 40-60 of a 900-line file means lines outside that window are UNSEEN: never edit there, and never write an anchor for a line the Read did not print. Read the range first.",
+  "- An elision marker (e.g. `... lines 61-890 omitted ...`) is NOT content. Never anchor on, inside, or across it.",
+  "- If an anchor is rejected: for `no longer exists` (the line was shown but has since changed) resend with a fresh anchor from the region below; for `was never shown to you` the hash was never printed for this file, so Read the range instead of guessing a new one.",
 ].join("\n");
 
 const NOTEBOOK_FILE_MESSAGE =
