@@ -993,13 +993,18 @@ export function AnimatedSidePanePanel({
       className={cn(
         // 独立外框放在内容层：关闭仍保留 Browser Guest 和 tab 实例，不改变面板持久化边界。
         "h-full overflow-hidden bg-background",
-        // 铺满：整帧改 fixed 覆盖内容区，左边界锚定侧栏宽度（文件树仍可见可点），
-        // 顶部留出 4px 桌面拖拽条（hasDesktopPanelInset 时 #content 有 p-1 内边），
-        // 标签栏因此保持原位、按钮也留在标签栏里可点。
+        // 铺满：改用固定定位覆盖内容区。
+        // ⚠️ 必须显式 h-auto：基类 h-full 是 height:100%，与 top/bottom 同时存在时属于
+        // over-constrained，浏览器会忽略 bottom——实测面板底边落在 1049（视口 1045），
+        // 比内容区高出 4px、最后一条被裁掉。h-auto 让高度真正由上下 inset 决定。
+        // 四边收 4px 与 #content 的留白（顶部拖拽条 + p-1 的右/下内边）对齐；
+        // 保留 frameClassName 的圆角与边框，与其它面板观感一致。
         isSidePaneExpandedApplied &&
-          (isDesktop
-            ? "fixed inset-y-1 right-1 left-[var(--workspace-sidebar-panel-width,0px)] z-20"
-            : "fixed inset-y-0 right-0 left-[var(--workspace-sidebar-panel-width,0px)] z-20"),
+          cn(
+            "fixed h-auto z-20",
+            isDesktop ? "top-1 right-1 bottom-1" : "top-0 right-0 bottom-0",
+            "left-[var(--workspace-sidebar-panel-width,0px)]",
+          ),
         frameClassName,
       )}
       style={lockedContentStyle}
