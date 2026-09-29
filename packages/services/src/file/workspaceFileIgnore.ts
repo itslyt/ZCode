@@ -5,11 +5,12 @@ import type { Ignore } from "ignore";
 import type { ServiceLogger } from "../logger/serviceLogger.js";
 
 /**
- * workspace 文件搜索忽略的单一真相源。
+ * workspace 文件搜索忽略的规则来源。
  *
- * `.zcodeignore`（workspace root，gitignore 语法）是搜索索引的唯一规则文件：
- * 首次需要规则而文件不存在时自动创建，内容为 root `.gitignore` 的拷贝（无则默认模板）；
- * 之后 `.gitignore` 的变化不再影响搜索，用户通过设置页编辑或「从 .gitignore 重新同步」。
+ * 已创建的 `.zcodeignore`（workspace root，gitignore 语法）是搜索索引的唯一真相源：
+ * 用户在设置页编辑，或自行在 workspace 根维护。
+ * 文件不存在时不再自动创建，改为运行时在内存按 root `.gitignore` + 内置默认排除段
+ * 合成同语义规则——搜索不应因读取规则而向用户工作区写入文件。
  *
  * 规则解析交给 `ignore` npm 包（gitignore spec 2.22 参考实现，ESLint 同款）：
  * 后声明覆盖、`!` 反选（含父目录排除后子文件无法恢复的 git 原生约束）、anchored/basename、
@@ -19,14 +20,16 @@ import type { ServiceLogger } from "../logger/serviceLogger.js";
 export const WORKSPACE_FILE_SEARCH_IGNORE_FILE_NAME = ".zcodeignore";
 const GITIGNORE_FILE_NAME = ".gitignore";
 
-type WorkspaceFileIgnoreLogger = Pick<ServiceLogger, "info" | "warn">;
+// 只用到 warn：自动创建日志随该分支一起移除，保存/同步失败仍以 warn 上报。
+type WorkspaceFileIgnoreLogger = Pick<ServiceLogger, "warn">;
 
 type WorkspaceFileSearchIgnoreRulesSource =
+  /** 已创建的 .zcodeignore，直接读取。 */
   | "file"
-  | "created-from-gitignore"
-  | "created-from-template"
-  | "fallback-gitignore"
-  | "fallback-builtin";
+  /** 文件不存在：内存按 .gitignore + 默认排除段合成。 */
+  | "gitignore"
+  /** 文件不存在且无 .gitignore：内存只用内置默认排除清单。 */
+  | "builtin";
 
 interface WorkspaceFileSearchIgnoreRules {
   matcher: Ignore;
@@ -282,9 +285,9 @@ async function atomicWriteIgnoreFile(path: string, content: string): Promise<voi
 }
 
 /**
- * 扫描前加载 `.zcodeignore` 规则；含自动创建与 fail-open 降级链：
- * 文件不存在 → 原子创建（.gitignore 拷贝 / 默认模板）；
- * 创建或读取失败（只读 fs、权限）→ 内存使用 .gitignore 内容 → 再失败用内置默认规则。
+ * 扫描前加载 `.zcodeignore` 规则；含 fail-open 降级链：
+ * 文件不存在 → 内存按 `.gitignore` + 默认排除段合成（不落盘）；
+ * 读取失败（只读 fs、权限）→ 内存按 .gitignore + 默认排除段合成 → 无 .gitignore 时用内置默认规则。
  * 任何降级只 warn 一次，绝不让 @ 面板因规则文件不可用而扫描失败。
  */
 export async function loadWorkspaceFileSearchIgnoreRules(
@@ -293,29 +296,27 @@ export async function loadWorkspaceFileSearchIgnoreRules(
 ): Promise<WorkspaceFileSearchIgnoreRules> {
   const ignorePath = resolve(rootPath, WORKSPACE_FILE_SEARCH_IGNORE_FILE_NAME);
 
-  const degradeToInMemory = async (
-    reason: string,
-    error: unknown,
+  // 规则文件缺失与读取失败走同一条合成路径：内存拼同一份内容，行为和落盘时一致，
+  // 只是不写文件——搜索规则不应成为向用户工作区写入的副作用。
+  const composeInMemory = async (
+    reason?: string,
+    error?: unknown,
   ): Promise<WorkspaceFileSearchIgnoreRules> => {
     const gitignoreContent = await readOptionalFile(resolve(rootPath, GITIGNORE_FILE_NAME)).catch(
       () => null,
     );
-    if (gitignoreContent !== null) {
+    if (reason !== undefined) {
       logger?.warn(
         undefined,
-        `[workspace-file-ignore] ${reason}，降级为运行时使用 .gitignore 规则`,
+        `[workspace-file-ignore] ${reason}，运行时使用${
+          gitignoreContent !== null ? ".gitignore + 默认排除规则" : "内置默认忽略规则"
+        }`,
         error,
       );
-      return {
-        matcher: buildIgnoreMatcher(gitignoreContent),
-        source: "fallback-gitignore",
-      };
     }
-    logger?.warn(undefined, `[workspace-file-ignore] ${reason}，降级为内置默认忽略规则`, error);
-    const template = buildWorkspaceFileSearchIgnoreTemplate(null);
     return {
-      matcher: buildIgnoreMatcher(template),
-      source: "fallback-builtin",
+      matcher: buildIgnoreMatcher(buildWorkspaceFileSearchIgnoreTemplate(gitignoreContent)),
+      source: gitignoreContent !== null ? "gitignore" : "builtin",
     };
   };
 
@@ -323,43 +324,13 @@ export async function loadWorkspaceFileSearchIgnoreRules(
   try {
     existing = await readOptionalFile(ignorePath);
   } catch (error) {
-    return degradeToInMemory(`读取 ${WORKSPACE_FILE_SEARCH_IGNORE_FILE_NAME} 失败`, error);
+    return composeInMemory(`读取 ${WORKSPACE_FILE_SEARCH_IGNORE_FILE_NAME} 失败`, error);
   }
   if (existing !== null) {
     return { matcher: buildIgnoreMatcher(existing), source: "file" };
   }
 
-  const gitignoreContent = await readOptionalFile(resolve(rootPath, GITIGNORE_FILE_NAME)).catch(
-    () => null,
-  );
-  const initialContent = buildWorkspaceFileSearchIgnoreTemplate(gitignoreContent);
-  try {
-    await atomicWriteIgnoreFile(ignorePath, initialContent);
-  } catch (error) {
-    // 创建失败不影响扫描：初始内容确定性已知，内存中直接按初始内容执行，
-    // 来源标记沿用初始内容来源（.gitignore 拷贝 / 内置模板）表达 fail-open 降级。
-    logger?.warn(
-      undefined,
-      `[workspace-file-ignore] 自动创建 ${WORKSPACE_FILE_SEARCH_IGNORE_FILE_NAME} 失败，降级为运行时使用${
-        gitignoreContent !== null ? ".gitignore" : "内置默认"
-      }规则`,
-      error,
-    );
-    return {
-      matcher: buildIgnoreMatcher(initialContent),
-      source: gitignoreContent !== null ? "fallback-gitignore" : "fallback-builtin",
-    };
-  }
-  logger?.info(
-    undefined,
-    `[workspace-file-ignore] 已自动创建 ${WORKSPACE_FILE_SEARCH_IGNORE_FILE_NAME}（来源：${
-      gitignoreContent !== null ? ".gitignore 拷贝" : "默认模板"
-    }）`,
-  );
-  return {
-    matcher: buildIgnoreMatcher(initialContent),
-    source: gitignoreContent !== null ? "created-from-gitignore" : "created-from-template",
-  };
+  return composeInMemory();
 }
 
 /**
