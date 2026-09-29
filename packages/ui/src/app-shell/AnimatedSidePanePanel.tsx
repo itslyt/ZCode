@@ -1,6 +1,14 @@
 /* eslint-disable max-lines -- Side pane 当前集中承载 tabs、browser/git/code-viewer 内容；完整拆分需按 pane 功能边界继续推进。 */
 import { ServiceProvider } from "@/hooks/useServices.js";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type RefObject,
+} from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import type { IServiceAccessor } from "@zcode/services";
 import {
@@ -62,6 +70,7 @@ import {
 import {
   resolveAnimatedSidePanePanelLayout,
   resolveOpenTabLauncherItemIds,
+  shouldApplyPreviewPaneMaximized,
   shouldOfferSelectionSideConversation,
   shouldRenderPreviewPaneHeavyContent,
   type OpenTabLauncherItemId,
@@ -424,9 +433,31 @@ export function AnimatedSidePanePanel({
     [sidePaneOwnerId, tabs, workspaceKey],
   );
   const activeTabId = sidePaneState?.activeTabId ?? "";
+  // 预览铺满：面板本地持有「用户是否按下了铺满」，生效与否由纯函数按面板可见性与
+  // active tab 类型派生。不落 store、不持久化，刷新后回到普通宽度。
+  const [isPreviewPaneMaximized, setIsPreviewPaneMaximized] = useState(false);
+  const handleTogglePreviewPaneMaximized = useCallback(() => {
+    setIsPreviewPaneMaximized((current) => !current);
+  }, []);
   const visibleActiveTabId = visibleTabs.some((tab) => tab.id === activeTabId)
     ? activeTabId
     : (visibleTabs.at(-1)?.id ?? "");
+  const isCodeViewerTabActive = visibleTabs.some(
+    (tab) => tab.id === visibleActiveTabId && tab.type === "code-viewer",
+  );
+  const isPreviewPaneMaximizedApplied = shouldApplyPreviewPaneMaximized({
+    isMaximized: isPreviewPaneMaximized,
+    isSidePaneVisible: isVisible,
+    isCodeViewerTabActive,
+  });
+  // 前提不再成立（切走预览 tab / 收起面板 / 关掉预览 tab）时把本地状态一并归位，
+  // 否则切回来会莫名又铺满。
+  useEffect(() => {
+    const canStayMaximized = isCodeViewerTabActive && isVisible;
+    if (!canStayMaximized) {
+      setIsPreviewPaneMaximized(false);
+    }
+  }, [isCodeViewerTabActive, isVisible]);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
   const tabsScrollViewportRef = useRef<HTMLDivElement | null>(null);
   const tabsScrollContentRef = useRef<HTMLDivElement | null>(null);
@@ -1186,6 +1217,8 @@ export function AnimatedSidePanePanel({
                         ) : tab.type === "code-viewer" ? (
                           <PreviewPane
                             markdownSelectionTarget={{ sessionId: activeTaskId, workspaceKey }}
+                            isMaximized={isPreviewPaneMaximizedApplied}
+                            onToggleMaximized={handleTogglePreviewPaneMaximized}
                             source={tab.source}
                             onClose={onCloseCodeViewer}
                             workspacePath={workspaceAbsPath}
