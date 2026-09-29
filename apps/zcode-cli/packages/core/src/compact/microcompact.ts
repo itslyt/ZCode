@@ -12,6 +12,19 @@ import { estimateMessageTokens } from "./manual.js";
 export const MICROCOMPACT_CLEARED_TOOL_RESULT_PREFIX = "[Old tool result content cleared]";
 export const MICROCOMPACT_CLEARED_TOOL_RESULT_MESSAGE = "[Old tool result content cleared]";
 export const DEFAULT_MICROCOMPACT_KEEP_RECENT_TOOL_RESULTS = 5;
+// 轮内保留量。依据（实测两个长会话，看 specs §16.0）：
+//   一个用户轮的中位步数 = 10，keep=5 时 78~81% 的轮**在轮内就发生清除**；
+//   keep=15 把这个比例降到 1%（仅 max=18 的长轮还会清）。
+// 为什么不用「轮内完全不清」：microcompact 是 autocompact 前的缓冲区，
+//   轮内不清会让本该回收的量直接撞 416K 阈值，把一次便宜的本地清除换成一次
+//   完整 LLM 摘要调用（实测最长 115 s）且不可逆。
+// 为什么跳轮就收回 5：跨轮后早先的结果对新问题基本无用，实测每轮可压量中位仅 1.6K token。
+export const DEFAULT_MICROCOMPACT_KEEP_RECENT_TOOL_RESULTS_IN_TURN = 15;
+// pin 有效期（方案 4 = 近期性 ∧ 总量上限，见 specs §16.2）。
+// 近期性 3 步：意图变了自然失效（窗口顺序即时间顺序，无需新增状态）。
+// 总量 20K：实测每轮可压量 p99 = 20 042 / max 27 450，cap=20K 时仅 1.6~1.8% 的轮会回退。
+export const DEFAULT_MICROCOMPACT_PIN_RECENCY_STEPS = 3;
+export const DEFAULT_MICROCOMPACT_PIN_TOKEN_BUDGET = 20_000;
 const DEFAULT_MICROCOMPACT_IDLE_THRESHOLD_MINUTES = 60;
 // 提高至 2000 的依据：对 196 条真实 applied 事件模拟，阈值 256→2000 把清除**操作数**
 // 从 332/931 降到 107/304（减约 1/3~1/9），而回收总量基本不变（重尾分布，
@@ -43,6 +56,29 @@ export interface LocalMicrocompactPolicyConfig {
   compactableToolNames?: readonly string[];
   clearErrorResults?: boolean;
   minTokenSavings?: number;
+  /**
+   * 同一用户轮内的保留条数。默认取 DEFAULT_MICROCOMPACT_KEEP_RECENT_TOOL_RESULTS_IN_TURN。
+   *
+   * 为什么轮内要比跳轮多留：`keepRecentToolResults` 的单位是 **model step**，
+   * 而实测一个用户轮的中位步数是 10、max 18——keep=5 时 **78~81% 的轮在轮内就发生清除**，
+   * 这正是「同一文件反复读」的根本来源。见 specs/context-compaction-optimization.md §16。
+   */
+  keepRecentToolResultsInTurn?: number;
+  /** pin 的近期性约束：只在最近这么多 model step 内重取过时，pin 才生效。 */
+  pinRecencySteps?: number;
+  /** pin 的总量上限（估算 token）：所有生效 pin 合计超过它就不再新增 pin。 */
+  pinTokenBudget?: number;
+  /**
+   * 当前 model step 序号（同一用户轮内从 0 递增）。
+   *
+   * 它是**轮边界信号**：0 = 轮首（turn-loop 里对应 `CompactPhase.PreRequest`，
+   * 即上一轮已结束、用户刚提了新问题），>0 = 轮内（`MidTurn`）。
+   *
+   * 不用「窗口里有没有真实用户消息」判：交互式会话的窗口里那个消息**永远在**，
+   * 该判据恒成立、无法表达「轮已结束」。
+   * 缺省时视为不在轮内（即取跳轮保留量），保持旧的保守行为。
+   */
+  modelStepIndex?: number;
 }
 
 export interface LocalMicrocompactMessage extends CompactModelMessage {
@@ -68,6 +104,23 @@ export interface LocalMicrocompactDecision {
     | "applied";
   thresholdTokens?: number;
   trigger?: MicrocompactTrigger;
+  /**
+   * 观测字段（specs/context-compaction-optimization.md §16.3）。
+   *
+   * 放在 decision 而不是 payload：`nothing_to_clear`（含「pin 把全部候选都保住了」
+   * 这种最该被观察的情形）不产生 payload，而调参需要的正是这种分布。
+   */
+  observation?: MicrocompactObservation;
+}
+
+/** 本轮 microcompact 的可观测事实：保留量与 pin 的规模、以及 pin 未生效的原因。 */
+export interface MicrocompactObservation {
+  keepRecentLimit: number;
+  withinUserTurn: boolean;
+  pinnedTargetCount: number;
+  pinnedTokenCount: number;
+  pinnedDroppedByRecency: number;
+  pinnedDroppedByCap: number;
 }
 
 export interface LocalMicrocompactResult<T extends LocalMicrocompactMessage> {
@@ -83,6 +136,8 @@ interface ToolResultCandidate {
   pointer?: string;
   /** `pointer` 的目标身份（规范化），用于识别「同一目标被反复重取」。 */
   refetchKey?: string;
+  /** 该结果的估算 token，供 pin 的总量上限核算。 */
+  tokenCount: number;
 }
 
 export function buildDefaultMicrocompactThreshold(autoCompactThreshold: number): number {
@@ -132,13 +187,42 @@ export function maybeLocalMicrocompactMessages<T extends LocalMicrocompactMessag
     };
   }
 
-  const keepCount =
-    positiveInt(config.keepRecentToolResults) ?? DEFAULT_MICROCOMPACT_KEEP_RECENT_TOOL_RESULTS;
+  // 保留条数：轮内放大（温和版 B）。单位是 model step，而一个用户轮中位 10 步——
+  // keep=5 时 78~81% 的轮在轮内就发生清除，这正是「反复读」的根源。见 specs §16.1。
+  // 轮内放大（温和版 B）。轮边界用 modelStepIndex 判定（见该字段注释）：
+  //   0 = 轮首（pre_request，上一轮已结束）→ 取旧的 5；>0 = 轮内 → 取 15。
+  const stepIndex = config.modelStepIndex;
+  const withinUserTurn = stepIndex !== undefined && stepIndex > 0;
+  const keepCount = withinUserTurn
+    ? (positiveInt(config.keepRecentToolResultsInTurn) ??
+        DEFAULT_MICROCOMPACT_KEEP_RECENT_TOOL_RESULTS_IN_TURN)
+    : (positiveInt(config.keepRecentToolResults) ?? DEFAULT_MICROCOMPACT_KEEP_RECENT_TOOL_RESULTS);
   const boundedKeepCount = Math.max(1, keepCount);
   const clearGroupCount = Math.max(0, candidateGroups.length - boundedKeepCount);
+  // 观测对象先算出来，：它在「有东西可清」和「pin 全保住了」两条路径上都要上报。
+  const observation = (pins: PinResolution): MicrocompactObservation => ({
+    keepRecentLimit: boundedKeepCount,
+    withinUserTurn,
+    pinnedTargetCount: pins.indexes.size,
+    pinnedTokenCount: pins.tokenCount,
+    pinnedDroppedByRecency: pins.droppedByRecency,
+    pinnedDroppedByCap: pins.droppedByCap,
+  });
+  const emptyPins: PinResolution = {
+    indexes: new Set<number>(),
+    tokenCount: 0,
+    droppedByRecency: 0,
+    droppedByCap: 0,
+  };
   if (clearGroupCount === 0) {
     return {
-      decision: { estimatedTokenCount, reason: "nothing_to_clear", thresholdTokens, trigger },
+      decision: {
+        estimatedTokenCount,
+        reason: "nothing_to_clear",
+        thresholdTokens,
+        trigger,
+        observation: observation(emptyPins),
+      },
       messages,
     };
   }
@@ -147,12 +231,23 @@ export function maybeLocalMicrocompactMessages<T extends LocalMicrocompactMessag
   // `clearRangeCandidates` 是「按旧规则应当清掉」的那批。
   const allCandidates = candidateGroups.flat();
   const clearRangeCandidates = candidateGroups.slice(0, clearGroupCount).flat();
-  const pinnedIndexes = resolvePinnedRefetchIndexes(allCandidates, collection.clearedRefetchKeys);
+  const pins = resolvePinnedRefetchIndexes({
+    candidateGroups,
+    clearedRefetchKeys: collection.clearedRefetchKeys,
+    recencySteps: positiveInt(config.pinRecencySteps) ?? DEFAULT_MICROCOMPACT_PIN_RECENCY_STEPS,
+    tokenBudget: positiveInt(config.pinTokenBudget) ?? DEFAULT_MICROCOMPACT_PIN_TOKEN_BUDGET,
+  });
 
-  const toClear = clearRangeCandidates.filter((candidate) => !pinnedIndexes.has(candidate.index));
+  const toClear = clearRangeCandidates.filter((candidate) => !pins.indexes.has(candidate.index));
   if (toClear.length === 0) {
     return {
-      decision: { estimatedTokenCount, reason: "nothing_to_clear", thresholdTokens, trigger },
+      decision: {
+        estimatedTokenCount,
+        reason: "nothing_to_clear",
+        thresholdTokens,
+        trigger,
+        observation: observation(pins),
+      },
       messages,
     };
   }
@@ -178,7 +273,7 @@ export function maybeLocalMicrocompactMessages<T extends LocalMicrocompactMessag
   }
 
   return {
-    decision: { estimatedTokenCount, reason: "applied", thresholdTokens, trigger },
+    decision: { estimatedTokenCount, reason: "applied", thresholdTokens, trigger, observation: observation(pins) },
     messages,
     payload: {
       clearedMessageCount: toClear.length,
@@ -189,6 +284,9 @@ export function maybeLocalMicrocompactMessages<T extends LocalMicrocompactMessag
       strategy: MicrocompactStrategy.LocalToolResultClear,
       tokensSaved,
       trigger,
+      // 观测字段（§16.3）：与 decision.observation 同源；payload 侧一并落库，
+      // 便于按会话回查 pin 的分布。
+      ...observation(pins),
     },
   };
 }
@@ -225,39 +323,76 @@ interface CompactableToolResultCollection {
 }
 
 /**
+ * pin 的判定结果。除了「钉哪些」还要回报为何未钉，供调参（§16.3）。
+ */
+interface PinResolution {
+  indexes: ReadonlySet<number>;
+  tokenCount: number;
+  droppedByRecency: number;
+  droppedByCap: number;
+}
+
+/**
  * 决定哪些候选项必须保留（永不清）——「断环」的全部逻辑就在这里。
  *
- * 判据是合取，缺一不可：
+ * 基础判据是合取，缺一不可：
  *  1. 该重取目标**曾被清过**（`clearedRefetchKeys`）——证明「清掉它」已经造成过一次代价；
- *  2. 该目标在候选里**还有存活副本**——证明它确实还在被用（否则没有可清的东西，也无所谓 pin）。
- *
- * 只 pin 该 key 的**最新**一条。更早的副本照常清：与会话里「保留最新 N 条」方向一致，
- * 只保留一份即可断环，多留只吃窗口。
+ *  2. 该目标在候选里**还有存活副本**——证明它确实还在被用。
  *
  * 为什么必须带上条件 1（实证）：已清除的条目在收集阶段就被跳过（幂等），所以
  * 「一清除 + 一存活」这种循环样本在候选里**只剩 1 条**。单看「候选出现≥2 次」会漏掉它们。
  * 反过来，实测两个会话里有 15 个「同一目标读≥2 次但从未被清」的 key——那只是同一位置
- * 读了两次，没有循环，不该 pin（这一条正是 14.4 验收表里的第 2 行）。
+ * 读了两次，没有循环，不该 pin。
  *
- * 成本：被 pin 的那一份会长期留在窗口里。反事实重放（两个长会话）显示被 pin 的目标仅
- * 15 个（4.2%/5.1%），但期末常驻多出 ~14K~24K token（离线重放区间）——**这不是省 token 的优化**，
- * 换掉的是循环中的重复工具往返。见 specs §14.2。
+ * 在此基础上加**有效期**（方案 4 = 近期性 ∧ 总量上限，见 specs §16.2）：
+ *  - 近期性：只在最近 `recencySteps` 个 model step 内出现过才 pin。
+ *    窗口顺序就是时间顺序（候选按 step 分组后从新往旧遍历），**不需要新增状态**。
+ *    效果是「续租」：模型持续重取就持续被 pin；一旦停了 recencySteps 步没再用，
+ *    pin 自然失效——这正是「意图可能已经变了」要的行为。
+ *  - 总量上限：所有生效 pin 的合计估算 token 不得超过 `tokenBudget`。
+ *    没有它，一轮里重取多个大文件会把常驻推到 autocompact 阀值（实测两个会话常驻
+ *    400K–530K、阀值 416K，而 pin 增量 +14K~24K），把一次便宜的本地清除换成
+ *    一次完整 LLM 摘要调用。
+ *
+ * 两者是合取：近期性防不了总量（一轮内可重取多个大文件），总量防不了陈旧。
+ * 预算不够时**优先保近期**（所以从新往旧遍历）。
  */
-function resolvePinnedRefetchIndexes(
-  allCandidates: readonly ToolResultCandidate[],
-  clearedRefetchKeys: ReadonlySet<string>,
-): ReadonlySet<number> {
-  const newestIndexByRefetchKey = new Map<string, number>();
-  for (const candidate of allCandidates) {
-    if (!candidate.refetchKey) continue;
-    newestIndexByRefetchKey.set(candidate.refetchKey, candidate.index);
+function resolvePinnedRefetchIndexes(input: {
+  candidateGroups: readonly (readonly ToolResultCandidate[])[];
+  clearedRefetchKeys: ReadonlySet<string>;
+  recencySteps: number;
+  tokenBudget: number;
+}): PinResolution {
+  const seenKeys = new Set<string>();
+  const indexes = new Set<number>();
+  let tokenCount = 0;
+  let droppedByRecency = 0;
+  let droppedByCap = 0;
+
+  for (let stepFromEnd = 0; stepFromEnd < input.candidateGroups.length; stepFromEnd += 1) {
+    const group = input.candidateGroups[input.candidateGroups.length - 1 - stepFromEnd]!;
+    for (let index = group.length - 1; index >= 0; index -= 1) {
+      const candidate = group[index]!;
+      const key = candidate.refetchKey;
+      if (!key) continue;
+      // 同一 key 只看最新一条：更早的副本照常清（只保留一份即可断环，多留只吃窗口）。
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      if (!input.clearedRefetchKeys.has(key)) continue;
+      if (stepFromEnd >= input.recencySteps) {
+        droppedByRecency += 1;
+        continue;
+      }
+      if (tokenCount + candidate.tokenCount > input.tokenBudget) {
+        droppedByCap += 1;
+        continue;
+      }
+      tokenCount += candidate.tokenCount;
+      indexes.add(candidate.index);
+    }
   }
 
-  const pinned = new Set<number>();
-  for (const [refetchKey, index] of newestIndexByRefetchKey) {
-    if (clearedRefetchKeys.has(refetchKey)) pinned.add(index);
-  }
-  return pinned;
+  return { indexes, tokenCount, droppedByRecency, droppedByCap };
 }
 
 function collectCompactableToolResultGroups<T extends LocalMicrocompactMessage>(
@@ -311,6 +446,8 @@ function collectCompactableToolResultGroups<T extends LocalMicrocompactMessage>(
       index,
       toolCallId: message.toolCallId,
       ...descriptor,
+      // pin 的总量上限按被保留那一份的体积核算；与 estimateMessageTokens 同一估算口径。
+      tokenCount: estimateMessageTokens([message]),
     };
 
     if (!currentGroup) {

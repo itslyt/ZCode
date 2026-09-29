@@ -91,16 +91,18 @@ export function maybeLocalMicrocompactRuntimeEntries(input: {
   config?: LocalMicrocompactPolicyConfig;
   entries: readonly RuntimeMessageEntry[];
   lastAssistantCompletedAtMs?: number;
+  modelStepIndex?: number;
   nowMs?: number;
   useMidConversationSystem?: boolean;
 }): RuntimeMicrocompactResult {
-  const providerMessages = buildProviderRequestMessages({
+  const projection = buildProviderRequestMessages({
     entries: input.entries,
     applyCacheControl: false,
     useMidConversationSystem: input.useMidConversationSystem,
-  }).messages;
+  });
+  const providerMessages = projection.messages;
   const result = maybeLocalMicrocompactMessages({
-    config: input.config,
+    config: { ...input.config, modelStepIndex: input.modelStepIndex },
     lastAssistantCompletedAtMs: input.lastAssistantCompletedAtMs,
     messages: providerMessages,
     nowMs: input.nowMs,

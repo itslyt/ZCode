@@ -812,3 +812,96 @@ fallback（「read it back from your own session store」）就不再是常规�
 
 **测试**：`core/test/session-reference-tool-consistency.test.ts`（新增）+ 既有 `tool-surface` /
 `compact-recovery-pointer` / `tool-description-registration-parity` 保持通过。
+
+## 16. 轮内保留量与 pin 有效期（2026-09-29 第六轮）
+
+### 16.0 数据背景：`keep=5` 在一个用户轮内就清（实测推翻「5 条够用」）
+
+`keepRecentToolResults = 5` 的单位是 **model step**（带 toolCalls 的 assistant 消息），
+不是用户轮。实测两个长会话（按「带工具调用的 assistant 消息」计数）：
+
+|                                   | f24fbcc0               | f7d418fa               |
+| --------------------------------- | ---------------------- | ---------------------- |
+| 用户轮数                          | 212                    | 206                    |
+| 每轮步数 中位 / 均值 / p90 / max  | 10 / 8.6 / 10 / **18** | 10 / 8.4 / 10 / **18** |
+| **keep=5 → 轮内发生清除的轮占比** | **81%**                | **78%**                |
+| keep=10 →                         | 6%                     | 7%                     |
+| keep=15 →                         | 1%                     | 1%                     |
+| keep=20 →                         | 0%                     | 0%                     |
+
+即：默认配置下，**你每问一次，八成会在这个问题自己的轮内就把前面读过的清掉**。
+这就是「同一文件反复读」的根本来源——不是阈值太低，是保留窗口比一轮还短。
+
+### 16.1 规则一：轮内把保留量放大（温和版）
+
+在「至少保留最新 N 条」之上，增加一条：**若当前仍在同一用户轮内，保留量取更大值**。
+
+- 轮内：`keepRecentToolResults` 取 **15**（覆盖 99% 的轮）
+- 跨轮：回到 **5**（旧行为）
+
+**为什么不直接改成 15**：跨轮后早先的工具结果对新问题基本无用，留着只吃窗口（实测每轮可压量中位 1.6K、均值 3.2K）。轮内放大、跳轮收回，两边都占。
+
+**为什么不用「轮内完全不清」**：microcompact 是 autocompact 前的缓冲区；轮内完全不清会让本该回收的量直接撞 416K 阈值，把一次便宜的本地清除换成一次
+**完整 LLM 摘要调用**（实测最长 115 s）且不可逆——与目标相反。
+
+**「当前轮起点」的所有者**：`modelStepIndex`（turn-loop 已用它推导 `CompactPhase`）。
+
+- `modelStepIndex === 0` → `CompactPhase.PreRequest` = **轮首**，上一轮已结束 → keep = 5
+- `modelStepIndex > 0` → `CompactPhase.MidTurn` = 轮内 → keep = 15
+
+**为什么不看「窗口里有没有真实用户消息」**（本节初稿的错误）：交互式会话的窗口里
+那个消息**永远在**——实测 12 步无新用户消息时 `latestRealUserMessageIndex` 仍是 0（≥ 0）。
+该判据恒成立，**根本无法表达「轮已结束」**，用它会让 keep=15 变成全局默认、
+永不回到 5。已改为用 `modelStepIndex`，它与 turn-loop 的 phase 同源，不新增状态。
+
+### 16.2 规则二：pin 有效期（方案 4 = 近期性 ∧ 总量上限）
+
+pin 此前**没有有效期**，靠「占位符还在窗口里」维持（§14）。这导致两个缺陷：
+
+1. **陈旧 pin 不退场**：20 步前重取过的文件，只要占位符还在，就一直占常驻——而那时意图可能已经变了。
+2. **总量无上限**：常驻增量实测 +14K~24K token，而两个会话常驻 400K–530K、
+   autocompact 阈值 416K——**pin 会把 autocompact 提前触发**，代价是一次 115 s 摘要调用。
+
+规则（两者**任一越界即取消 pin**，取回普通候选资格）：
+
+| 约束                                                    | 默认值       | 依据                                                                      |
+| ------------------------------------------------------- | ------------ | ------------------------------------------------------------------------- |
+| 近期性：pin 只在「最近 M 个 model step 内重取过」时生效 | M = 3        | 意图变了自然失效；窗口顺序即时间顺序                                      |
+| 总量上限：所有生效 pin 的合计估算 token ≤ cap           | cap = 20 000 | 实测每轮可压量 p99 = 20 042、max 27 450；cap=20K 时仅 1.6~1.8% 的轮会回退 |
+
+**为什么是合取而不是二选一**：近期性防不了总量（一轮内重取多个大文件）、总量防不了陈旧。
+**为什么不用「N 轮计时」**：按时钟取消会把循环放回来——模型跨轮仍在改同一个文件时，它仍然需要那份内容。
+
+### 16.3 观测（为后续调参，必须先于调参落地）
+
+§14.2 已声明：pin 的 14K~24K 是**离线重放**而非运行时实测。所以本轮不靠拍数字调参，而是先把分布采出来：
+
+字段挂在 **`decision.observation`**（而非 payload）：`nothing_to_clear`（含「pin 把全部候选都保住了」这种最该被观察的情形）不产生 payload，而调参需要的正是这种分布。`applied` 时同一份字段也会随 payload 落库。
+
+| 字段                     | 含义                              |
+| ------------------------ | --------------------------------- |
+| `pinnedTargetCount`      | 本轮生效的 pin 目标数             |
+| `pinnedTokenCount`       | 本轮生效 pin 的合计估算 token     |
+| `pinnedDroppedByRecency` | 因近期性越界而未生效的候选数      |
+| `pinnedDroppedByCap`     | 因总量越界而未生效的候选数        |
+| `keepRecentLimit`        | 本轮实际使用的保留条数（5 或 15） |
+| `withinUserTurn`         | 本轮是否处在同一用户轮内          |
+
+拿到这些分布后，M 与 cap 才有调整依据。
+
+### 16.4 验收场景
+
+| 场景                                         | 期望                                                                        |
+| -------------------------------------------- | --------------------------------------------------------------------------- |
+| 轮内（`modelStepIndex > 0`），步数 5~15      | 轮内不清（keep=15）；`withinUserTurn: true`                                 |
+| 轮首（`modelStepIndex === 0`，上一轮已结束） | 回到 keep=5；上一轮的结果正常可清                                           |
+| 轮内可压量 > cap（20K）                      | 超出的部分按旧规则清；`pinnedDroppedByCap > 0`                              |
+| pin 目标在 3 步内未再被重取                  | 不再 pin；`pinnedDroppedByRecency > 0`                                      |
+| pin 目标在 3 步内被重取                      | 仍 pin，计入 `pinnedTargetCount`                                            |
+| 无 `modelStepIndex`（子代理 / 测试直接调用） | `withinUserTurn: false`，退回 keep=5，行为与旧版一致                        |
+| pin 把全部候选都保住                         | `reason: "nothing_to_clear"`，但 `decision.observation` **仍上报** pin 规模 |
+| 禁用 microcompact                            | 所有新字段不出现，不改变既有分支                                            |
+
+**测试**：`core/test/microcompact-turn-retention.test.ts` 与 `core/test/microcompact-pin-expiry.test.ts`（新增）；
+既有 `microcompact-refetch-pin` / `microcompact-compactable-tools` / `microcompact-refetch-pointer`
+必须继续通过（特别是 pin 的 5 条既有断言不得因有效期而回归）。

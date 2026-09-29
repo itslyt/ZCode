@@ -52,14 +52,18 @@ export async function microcompactIfNeeded(
     config: microcompactConfig,
     entries: context.turnRequestState.entries,
     lastAssistantCompletedAtMs: this.lastAssistantCompletedAtMs,
+    modelStepIndex: context.modelStepIndex,
     useMidConversationSystem,
   });
 
   if (!result.payload) {
+    // 跳过也要上报观测：`nothing_to_clear` 里包含「pin 把全部候选都保住了」
+    // 这种最值得观察的情形，而调参要的正是这个分布（specs §16.3）。
     this.logger?.debug("Microcompact skipped", {
       ...traceContextToLogContext(turnTraceContext),
       event: "compact.micro.skipped",
       estimatedTokenCount: result.decision.estimatedTokenCount,
+      ...result.decision.observation,
       modelStepIndex: context.modelStepIndex,
       module: "core.runtime",
       phase: context.phase,
@@ -92,6 +96,8 @@ export async function microcompactIfNeeded(
     ...traceContextToLogContext(turnTraceContext),
     clearedMessageCount: payload.clearedMessageCount,
     event: "compact.micro.applied",
+    // 观测（specs §16.3）：M/cap 与轮内保留量要有分布才能调参，不靠拍数字。
+    ...result.decision.observation,
     modelStepIndex: context.modelStepIndex,
     module: "core.runtime",
     phase: context.phase,

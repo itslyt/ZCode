@@ -245,6 +245,14 @@ export const microcompactBoundaryPayloadSchema = z
     clearedToolCallIds: z.array(z.string().min(1)),
     keptToolCallIds: z.array(z.string().min(1)),
     clearedMessageCount: z.number().int().nonnegative(),
+    // 观测字段（specs/context-compaction-optimization.md §16.3）：本轮实际使用的保留量、
+    // pin 的规模与未生效原因。全部可选，旧记录仍可解析。
+    keepRecentLimit: z.number().int().positive().optional(),
+    withinUserTurn: z.boolean().optional(),
+    pinnedTargetCount: z.number().int().nonnegative().optional(),
+    pinnedTokenCount: z.number().int().nonnegative().optional(),
+    pinnedDroppedByRecency: z.number().int().nonnegative().optional(),
+    pinnedDroppedByCap: z.number().int().nonnegative().optional(),
     traceId: z.string().min(1),
     turnId: z.string().min(1).optional(),
   })
