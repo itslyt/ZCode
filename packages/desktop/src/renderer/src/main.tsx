@@ -14,6 +14,9 @@ import {
   playTaskNotificationSound,
   setStreamClientId,
   setReactErrorArmsReporter,
+  applyTheme,
+  resolveStoredThemePreference,
+  THEME_STORAGE_KEY,
 } from "@zcode/ui";
 import "@zcode/ui/styles.css";
 import { connectViaMessagePort, createMessagePortServiceConnection } from "@zcode/client";
@@ -73,31 +76,9 @@ function registerE2EStoreBridgesIfEnabled() {
   });
 }
 
-// 初始化主题：默认 Zai dark，后续由 useTheme hook 接管
-{
-  const saved = localStorage.getItem("zcode-theme") || "zai-dark";
-  const resolved =
-    saved === "system"
-      ? window.matchMedia("(prefers-color-scheme: dark)").matches
-        ? "dark"
-        : "light"
-      : saved === "dark" || saved === "zai-dark"
-        ? "dark"
-        : "light";
-  const appliedTheme =
-    saved === "system"
-      ? resolved === "dark"
-        ? "zai-dark"
-        : "zai-light"
-      : saved === "dark"
-        ? "zai-dark"
-        : saved === "light"
-          ? "zai-light"
-          : saved;
-  if (resolved === "dark") document.documentElement.classList.add("dark");
-  document.documentElement.classList.toggle("theme-zai-light", appliedTheme === "zai-light");
-  document.documentElement.classList.toggle("theme-zai-dark", appliedTheme === "zai-dark");
-}
+// 首屏主题：在 React 挂载前先应用一次，避免启动壳消失后闪一下默认底色。
+// 默认值与解析规则统一由 @zcode/ui 的 useTheme 拥有，这里不再重复一份。
+applyTheme(resolveStoredThemePreference(localStorage.getItem(THEME_STORAGE_KEY)));
 
 const isMacDesktop = navigator.userAgent.includes("Mac");
 const isWindowsDesktop = navigator.userAgent.includes("Windows");

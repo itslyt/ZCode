@@ -1,22 +1,15 @@
-type WebThemeSeed = "light" | "dark" | "zai-light" | "zai-dark" | "system";
+import {
+  DEFAULT_THEME_PREFERENCE,
+  isTheme,
+  normalizeThemePreference,
+  type Theme,
+} from "@zcode/ui/useTheme";
 
-export const WEB_DEFAULT_THEME: WebThemeSeed = "zai-dark";
+type WebThemeSeed = Theme;
 
-function isWebThemeSeed(value: unknown): value is WebThemeSeed {
-  return (
-    value === "light" ||
-    value === "dark" ||
-    value === "zai-light" ||
-    value === "zai-dark" ||
-    value === "system"
-  );
-}
-
-function normalizeWebThemeSeed(theme: WebThemeSeed): WebThemeSeed {
-  if (theme === "dark") return "zai-dark";
-  if (theme === "light") return "zai-light";
-  return theme;
-}
+// Web 入口无本地偏好时的默认主题。取值来自 UI 包的唯一所有者，
+// 分享页会显式传入 "zai-light" 覆盖它。
+export const WEB_DEFAULT_THEME: WebThemeSeed = DEFAULT_THEME_PREFERENCE;
 
 export function resolveWebInitialTheme({
   storedTheme,
@@ -25,9 +18,9 @@ export function resolveWebInitialTheme({
   storedTheme?: string | null;
   defaultTheme?: WebThemeSeed;
 }): WebThemeSeed {
-  if (isWebThemeSeed(storedTheme)) {
-    return normalizeWebThemeSeed(storedTheme);
+  if (isTheme(storedTheme)) {
+    return normalizeThemePreference(storedTheme);
   }
 
-  return normalizeWebThemeSeed(defaultTheme);
+  return normalizeThemePreference(defaultTheme);
 }

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, webContents as electronWebContents } from "electron";
+import { app, BrowserWindow, nativeTheme, webContents as electronWebContents } from "electron";
 import type { UtilityProcess as ElectronUtilityProcess } from "electron";
 import os from "node:os";
 import { join } from "node:path";
@@ -264,8 +264,11 @@ export function openResourceManager(): void {
     minWidth: 640,
     minHeight: 420,
     title: RESOURCE_MANAGER_WINDOW_TITLE,
-    // 不继承主窗口的自定义标题栏，使用系统默认标题栏
-    backgroundColor: "#1e1e1e",
+    // 不继承主窗口的自定义标题栏，使用系统默认标题栏。
+    // 窗口不透明，renderer 脚本执行前会先露这个底色，因此按当前生效亮暗取色
+    // （nativeTheme.themeSource 已由主窗口的 SetTitleBarTheme 跟随用户主题）；
+    // 固定深色会让默认跟随系统的浅色环境开窗时闪一下黑底。
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#1e1e1e" : "#f8f8f8",
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,

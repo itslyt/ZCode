@@ -15,9 +15,11 @@
     <title>ZCode</title>
     <script>
       (() => {
-        // JS bundle 执行前先按本地主题偏好决定首屏底色，避免 dark 用户在这一帧看到白底闪烁。
+        // JS bundle 执行前先按本地主题偏好决定首屏底色，避免刷新时这一帧闪一下默认底色。
+        // DEFAULT_THEME 与 UI 包的唯一所有者 packages/ui/src/useTheme.ts
+        // 的 DEFAULT_THEME_PREFERENCE 必须一致；此内联脚本无法 import，只能同步字面量。
         const STORAGE_KEY = "zcode-theme";
-        const DEFAULT_THEME = "zai-dark";
+        const DEFAULT_THEME = "system";
         const BROWSER_THEME_COLORS = {
           dark: "#161616",
           light: "#f8f8f8",
@@ -55,9 +57,15 @@
             document.documentElement.classList.add("dark");
           }
         } catch {
-          document.documentElement.setAttribute("data-zcode-bootstrap-theme", "dark");
-          syncBrowserThemeSurface("dark");
-          document.documentElement.classList.add("dark");
+          // 读不到 localStorage（隐私模式等）时同样按系统偏好兜底，与默认值语义一致。
+          const systemDark =
+            window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+          const fallbackTheme = systemDark ? "dark" : "light";
+          document.documentElement.setAttribute("data-zcode-bootstrap-theme", fallbackTheme);
+          syncBrowserThemeSurface(fallbackTheme);
+          if (fallbackTheme === "dark") {
+            document.documentElement.classList.add("dark");
+          }
         }
       })();
     </script>

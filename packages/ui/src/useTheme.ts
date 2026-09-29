@@ -3,7 +3,12 @@ import { useEffect, useState, useCallback } from "react";
 export type Theme = "light" | "dark" | "zai-light" | "zai-dark" | "system";
 export type ResolvedTheme = "light" | "dark";
 
-const STORAGE_KEY = "zcode-theme";
+export const THEME_STORAGE_KEY = "zcode-theme";
+
+// 无本地偏好时的默认主题。跟随系统而不是固定深色：首次启动的亮暗由 prefers-color-scheme 决定。
+// 该常量是所有入口（store、hook、桌面/Web 首屏脚本）的唯一默认值来源，
+// packages/web/index.html 的内联脚本无法 import，只能用注释标注同一取值。
+export const DEFAULT_THEME_PREFERENCE: Theme = "system";
 const BROWSER_THEME_SURFACE_ATTRIBUTE = "data-zcode-browser-theme-surface";
 
 function getSystemTheme(): ResolvedTheme {
@@ -69,7 +74,7 @@ export function applyTheme(theme: Theme) {
   syncBrowserThemeSurface(resolved);
 }
 
-function isTheme(value: string | null): value is Theme {
+export function isTheme(value: string | null | undefined): value is Theme {
   return (
     value === "light" ||
     value === "dark" ||
@@ -79,16 +84,21 @@ function isTheme(value: string | null): value is Theme {
   );
 }
 
+// 存储值 → 生效偏好：合法值优先并归一 legacy 别名，否则回退默认主题。
+// 所有读取 zcode-theme 的入口都应走这里，避免各自写死兜底值。
+export function resolveStoredThemePreference(stored: string | null | undefined): Theme {
+  return isTheme(stored) ? normalizeThemePreference(stored) : DEFAULT_THEME_PREFERENCE;
+}
+
 export function useTheme() {
   const [theme, setThemeState] = useState<Theme>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    // 默认主题统一收敛到 Zai dark，避免旧 hook 兜底值和 Zustand store 默认值分叉。
-    return isTheme(saved) ? normalizeThemePreference(saved) : "zai-dark";
+    const saved = localStorage.getItem(THEME_STORAGE_KEY);
+    return resolveStoredThemePreference(saved);
   });
 
   const setTheme = useCallback((t: Theme) => {
     const normalizedTheme = normalizeThemePreference(t);
-    localStorage.setItem(STORAGE_KEY, normalizedTheme);
+    localStorage.setItem(THEME_STORAGE_KEY, normalizedTheme);
     setThemeState(normalizedTheme);
     applyTheme(normalizedTheme);
   }, []);

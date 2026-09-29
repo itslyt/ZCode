@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button.js";
 import { EmbeddedWebsiteHeader } from "@/components/EmbeddedWebsiteHeader.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useZCodeStoreWithDefault } from "@/store/StoreProvider.js";
-import { normalizeThemePreference, resolveTheme } from "@/useTheme.js";
+import { DEFAULT_THEME_PREFERENCE, normalizeThemePreference, resolveTheme } from "@/useTheme.js";
 import type { CodingPlanProviderId } from "@/settings/model-provider-section/constants.js";
 import type { CodingPlanFunnelContext } from "@/lib/codingPlanFunnelTelemetry.js";
 import {
@@ -85,7 +85,7 @@ export function CodingPlanEmbeddedWebviewDialog({
 }: CodingPlanEmbeddedWebviewDialogProps) {
   const { intl, locale } = useZCodeIntl();
   const platform = usePlatform();
-  const theme = useZCodeStoreWithDefault((state) => state.theme, "zai-dark");
+  const theme = useZCodeStoreWithDefault((state) => state.theme, DEFAULT_THEME_PREFERENCE);
   const userId = useZCodeStoreWithDefault((state) => state.user?.id ?? null, null);
   const webviewRef = useRef<ElectronWebviewTag | null>(null);
   const onOpenResultRef = useRef(onOpenResult);
