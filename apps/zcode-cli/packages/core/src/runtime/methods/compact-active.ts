@@ -23,6 +23,7 @@ import {
   defaultCompactPhaseForTrigger,
   defaultCompactReasonForTrigger,
   buildPostCompactReadStateReminderEntries,
+  rebuildServedAnchorsAfterCompact,
   countCompactPreservedRuntimeMessages,
   buildPostCompactRuntimeEntries,
   compactFailureReasonFromError,
@@ -646,7 +647,15 @@ async function compactActiveConversationImpl(
             )
           : recordablePostCompactEntries,
       );
+      // 先清空（门禁语义：压缩不等于重新读盘，stale 基准必须重建），
+      // 再用压缩后仍在上下文里的条目重建 served 子集——否则模型手里还留着带锚点的
+      // 结果，却被判 unserved。源取 postCompactEntries：它就是接着要发给模型的集合，
+      // 比 preservedEntries 更准（后者还要经 prefix/续写过滤）。见 §7.7.2。
       this.readFileState.clear();
+      rebuildServedAnchorsAfterCompact({
+        entries: postCompactEntries,
+        readFileState: this.readFileState,
+      });
       return {
         displayText: "Compacted",
         entries: postCompactEntries,

@@ -143,15 +143,21 @@ function formatReadTextResult(input: {
   totalLines: number | undefined;
 }): string {
   const numLines = countReadTextLines(input.content);
-  return formatReadTextOutput({
-    type: "text",
-    filePath: "",
-    content: input.content,
-    numLines,
-    startLine: input.startLine ?? 1,
-    totalLines: input.totalLines ?? numLines,
-    partialViewNotice: input.partialViewNotice,
-  });
+  // includeAnchors: false —— 这条提醒只是复用了 Read 的渲染，它本身不是一次 Read：
+  // 走这里的附件路径不写 served 集合（见 specs/edit-anchored-verification.md §7.7.1），
+  // 渲染锚点会让模型拿到一组它用不了的可编辑承诺。行号保留，供定位用。
+  return formatReadTextOutput(
+    {
+      type: "text",
+      filePath: "",
+      content: input.content,
+      numLines,
+      startLine: input.startLine ?? 1,
+      totalLines: input.totalLines ?? numLines,
+      partialViewNotice: input.partialViewNotice,
+    },
+    { includeAnchors: false },
+  );
 }
 
 function countReadTextLines(content: string): number {

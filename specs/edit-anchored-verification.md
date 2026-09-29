@@ -1358,3 +1358,103 @@ import { readFile, writeFile, stat } from "node:fs/promises";
 于是小文件也被当成范围读，resume 后连 Read 自己那份都不恢复，看不出这条修没修。
 
 </details>
+
+## 7.7 第五轮：锚点的两个「展示与登记不一致」出口（`731ac8f` 后）
+
+`731ac8f` 把「锚点只能从 Read 得到」写进了描述。但描述层修不了**工具自身**在两条路径上
+「把锚点展示给模型、却不登记进 served」的不一致——那是 §1/§2 同一类缺陷的另外两个出口。
+
+### 7.7.1 附件提醒：伪装成 Read、带锚点、不登记 served
+
+**现象**：用户发 `@file` 附件时，`conversation.ts` → `prompt-attachment.ts` 会构造一条
+**伪装成 Read 调用**的系统提醒：
+
+```
+Called the Read tool with the following input: {"file_path":"/tmp/x.ts"}
+Result of calling the Read tool:
+1:3BND│# Title
+2:RVM2│
+```
+
+内容来自 `formatReadTextOutput`（`read-text.ts:80` → `addReadLineNumbers`），**是完整锚点**。
+但这条路径不写 `readFileState`（`attachments.ts`/`prompt-attachment.ts` 里 `servedAnchors`
+出现 0 次），所以模型抄这些锚点去编辑必然 `unserved`。
+
+**实测（真实运行，非读代码）**：同一份 5 行内容，附件提醒与 Read 输出**逐字相同的 5 个锚点**。
+
+**为什么严重**：它比 Bash 那条更隐蔽——模型看到的是「一次成功的 Read」，没有任何线索
+提示这些锚点不可用；而 Bash 至少没有锚点、模型不会误以为可用。
+
+**DB 取证**：本机出现过带锚点的附件提醒（`sess_f7d418fa`），是测试期间往 `/tmp`
+写文件时被当附件读进去的。真实用户 `@file` 会走同一条路。
+
+**修法**：附件提醒**不再渲染锚点**。它本来就不是一次 Read，不该长成 Read 的样子。
+用同一份内容渲染但去掉 `N:HASH│` 前缀（保留行号，便于模型理解结构）——
+既不改变它「用户提供上下文」的定性，也不给出它给不了的可编辑承诺。
+
+### 7.7.2 compact 清空 readFileState，但保留了带锚点的条目
+
+**现象**：`compact-active.ts:649` 的 `readFileState.clear()` 把 served 集合归零；
+而压缩按 `compact-selection.ts` 会**原样保留最近若干轮**，于是模型上下文里
+**还留着带锚点的 Read 结果**，served 集合却已经空了。模型照抄眼前看得见的锚点 → `unserved`。
+
+这与 `anchor-served.ts` 自己写下的不变量直接冲突：
+
+> **只增不减**。文件内容变了也不清空——模型自己编辑一次后，它手里其余行的锚点仍然是被
+> 展示过的，清掉会让这些锚点被误判为 unserved，逼模型重新读整个文件。
+
+压缩正是同一件事：模型手里仍有锚点（条目被保留了），却被清空判为没看过。
+
+**实测归因（全部 65 次 unserved，时序比对）**：
+
+| 归因 | 次数 |
+| --- | --- |
+| 提交哈希 ≠ Read 展示的哈希（转写错误） | 18 |
+| 完全没 Read 过 | 15 |
+| 读过但锚点行不在读取范围内 | 10 |
+| **读后被压缩清空** | **5** |
+| 同名不同路径（读的是兄弟文件） | 1 |
+
+对那 5 例做了决定性比对：**逐字比对提交哈希与 Read 展示哈希，5 例全部是转写错误**，
+不是被压缩误伤。即本条**目前没有可证实的真实受害者**，是理论坑位而非正在流血的口子。
+
+**结论：本条按「方向正确但无实证」对待——修，但改动要小，且必须不引入新语义。**
+
+#### 修法（方案 A：压缩后用保留条目重建 served）
+
+把裸 `clear()` 换成：清空读状态（保留原有语义），随后**用压缩后仍留在上下文里的
+Read / EditAnchored 结果重建 served 子集**。
+
+复用 §4/§7.1 已有的恢复路径思想，但**必须保持两种语义的分界**：
+
+| 字段 | 语义 | 压缩后 |
+| --- | --- | --- |
+| `servedAnchors` | 「这行给模型看过」——随会话上下文走 | **按保留条目重建** |
+| `content`/`mtimeMs`/`sizeBytes`/`revisionId` | 「文件未变」门禁依据——随磁盘事实走 | **不重建**（保持清空） |
+
+**为什么门禁字段不能一起重建**：`getEditableReadStateFailure` 用它们判 stale
+（`edit.ts:499-512`）。压缩不等于重新读盘，拿被保留条目的旧 mtime 当门禁基准，
+会把「压缩后文件已被外部改过」判成「未变」——那是 §6 那类「凭一次未发生的读拿到写权限」的
+同一个错误。**served 只增不减，门禁必须重新建立。**
+
+**实现约束（已核实）**：
+- 重建走**已保留条目**（`preservedEntries`），它们是 `RuntimeMessageEntry`，
+  工具结果在 `message.role === "tool"` 且带 `toolName`；锚点正文在 `content` 文本里，
+  用 `parseAnchorToken`/`ANCHOR_SEPARATOR` 解析（`anchor-hash.ts`）。
+- 只认 `Read` 与 `EditAnchored` 的结果——与 hydrator 一致（`read-file-state-hydrator.ts` 已把
+  `EditAnchored` 纳入，注释说明「只匹配 `Edit` 会让锚点编辑过的文件在 resume 后丢 served」）。
+- 条目文本可能已被 microcompact 清空（`MICROCOMPACT_CLEARED_TOOL_RESULT_PREFIX`）：
+  那种条目**没有**锚点，解析自然得空，不需特判。
+- 重建出的条目用 `mergeServedAnchorsAfterRejection`（`edit-anchored.ts:280`）**同一个形状**：
+  门禁字段按「没读全」处理（`isPartialView: true`、`content: ""`），只放 served。
+  不新建写入路径，复用既有那个「served 需要有地方放」的保守条目。
+
+### 7.7.3 验收
+
+1. **附件提醒**：`buildPromptAttachmentReminderBodies({kind:"file", …})` 的输出
+   不含 `N:HASH│` 前缀；同时 Read 自己的输出仍含（别把两处一起改掉）。
+2. **压缩重建**：给定「保留条目里含带锚点的 Read 结果」，压缩后
+   `readFileState` 的 served 集合含这些锚点，且门禁字段未被重建（条目 `isPartialView: true`、
+   无 `content`）。
+3. **门禁不受影响**：压缩后对同一文件发 `Edit`（未重新 Read），仍报 `File has not been read yet`
+   ——压缩不得成为「凭保留条目拿到写权限」的捷径。

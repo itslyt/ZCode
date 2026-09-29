@@ -60,7 +60,10 @@ export async function readTextFileForModel({
   });
 }
 
-export function formatReadTextOutput(output: ReadTextOutput): string {
+export function formatReadTextOutput(
+  output: ReadTextOutput,
+  options: { includeAnchors?: boolean } = {},
+): string {
   const partialViewPrefix = output.partialViewNotice
     ? `${formatReadToolResultWarning(output.partialViewNotice)}\n\n`
     : "";
@@ -77,10 +80,15 @@ export function formatReadTextOutput(output: ReadTextOutput): string {
 
   // 成功文本结果的模型可见契约只包含条件提醒与带行号正文；
   // 历史安全提醒不属于当前 tool result 路径。
-  return `${partialViewPrefix}${addReadLineNumbers({
-    content: output.content,
-    startLine: output.startLine,
-  })}`;
+  //
+  // includeAnchors: false 供「不是 Read 却复用了本渲染器」的调用方（目前只有用户附件
+  // 提醒，见 specs/edit-anchored-verification.md §7.7.1）。那种路径不写 served 集合，
+  // 渲染锚点等于给模型一个它用不了的可编辑承诺；保留行号是为了定位，不是承诺。
+  const numbered =
+    options.includeAnchors === false
+      ? addPlainLineNumbers({ content: output.content, startLine: output.startLine })
+      : addReadLineNumbers({ content: output.content, startLine: output.startLine });
+  return `${partialViewPrefix}${numbered}`;
 }
 
 export function addReadLineNumbers({
@@ -107,6 +115,22 @@ export function addReadLineNumbers({
 
 function formatReadToolResultWarning(body: string): string {
   return `<system-reminder>${body}</system-reminder>`;
+}
+
+/** 只加行号、不加锚点。给「不是 Read 却复用渲染器」的路径用，见上面 includeAnchors 的说明。 */
+function addPlainLineNumbers({
+  content,
+  startLine,
+}: {
+  content: string;
+  startLine: number;
+}): string {
+  const firstLineNumber = startLine <= 0 ? 1 : startLine;
+
+  return content
+    .split(/\r?\n/)
+    .map((line, index) => `${index + firstLineNumber}\t${line}`)
+    .join("\n");
 }
 
 function toRangeOffsetLine(offset: number | undefined): number {

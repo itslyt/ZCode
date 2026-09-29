@@ -16,7 +16,10 @@ import {
 } from "../../agent/message-history.js";
 import { buildProviderRequestMessages } from "./provider-request-messages.js";
 
-export { buildPostCompactReadStateReminderEntries } from "./compact-post-reminders.js";
+export {
+  buildPostCompactReadStateReminderEntries,
+  rebuildServedAnchorsAfterCompact,
+} from "./compact-post-reminders.js";
 export { countCompactPreservedRuntimeMessages } from "./compact-preservation.js";
 export {
   estimateRuntimeEntryTokens,
