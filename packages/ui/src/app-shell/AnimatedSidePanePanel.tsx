@@ -451,6 +451,26 @@ export function AnimatedSidePanePanel({
     isExpanded: isSidePaneExpanded,
     isSidePaneVisible: isVisible,
   });
+  // Esc 退出铺满。仅在生效态挂载；下拉菜单 / 对话框已处理过 Esc 时不抢，
+  // 否则会同时关掉两层。
+  useEffect(() => {
+    if (!isSidePaneExpandedApplied) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) {
+        return;
+      }
+
+      setIsSidePaneExpanded(false);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isSidePaneExpandedApplied]);
   // 面板收起时把本地状态一并归位，否则下次打开会莫名又是铺满态。
   useEffect(() => {
     if (!isVisible) {
