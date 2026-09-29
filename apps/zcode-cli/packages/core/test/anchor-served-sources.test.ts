@@ -215,3 +215,31 @@ test("EditAnchored 的结果同样重建（与 hydrator 的恢复名单一致）
   assert.equal(rebuilt, 1, "EditAnchored 也写读状态，resume/hydrate 已把它纳入");
   assert.ok(collectServedAnchors(readFileState, "/tmp/edited.ts").has(hashLineContent(lines[0]!)));
 });
+
+test("带 >>> 标记的行也参与重建（错误信息渲染的那些行同样是看过的）", () => {
+  const lines = ["const a = 1;", "const b = 2;"];
+  // 模拟错误信息里的回传区：问题行带 >>> 标记
+  const marked = lines
+    .map((line, index) => `${index === 1 ? ">>> " : ""}${index + 1}:${hashLineContent(line)}│${line}`)
+    .join("\n");
+
+  const entries: RuntimeMessageEntry[] = [
+    {
+      message: {
+        role: "assistant",
+        content: "call",
+        toolCalls: [{ id: "c1", name: "Read", input: { file_path: "/tmp/marked.ts" } }],
+      },
+    },
+    { message: { role: "tool", content: marked, toolCallId: "c1", toolName: "Read" } },
+  ];
+
+  const readFileState: ReadFileStateMap = new Map();
+  const rebuilt = rebuildServedAnchorsAfterCompact({ entries, readFileState });
+
+  assert.equal(rebuilt, 1);
+  const served = collectServedAnchors(readFileState, "/tmp/marked.ts");
+  for (const line of lines) {
+    assert.ok(served.has(hashLineContent(line)), `带标记的行 ${JSON.stringify(line)} 不应被漏掉`);
+  }
+});
