@@ -11,9 +11,13 @@ import { createReadFileStateKey } from "../../tool/read-file-state.js";
 /** 能从结果正文里解析出锚点的工具；与 hydrator 的恢复名单一致（`read-file-state-hydrator.ts`）。 */
 const ANCHOR_BEARING_TOOLS = new Set(["Read", "EditAnchored"]);
 
-/** 锚点行前缀：`22:AB3F│...`。整行匹配，不是子串扫描。 */
+/**
+ * 锚点行前缀：`22:AB3F│...`，可带 `>>> ` 标记。
+ * 整行匹配而非子串扫描，但必须容忍标记——错误信息会用 `>>>` 标出问题行，
+ * 那些行同样是「展示给模型看过的」，漏掉它们会让 served 凭空少一块。
+ */
 const ANCHOR_LINE_PATTERN = new RegExp(
-  `^(\\d+):([0-9A-Za-z]{${ANCHOR_HASH_LENGTH}})${ANCHOR_SEPARATOR}`,
+  `^(?:>>> )?(\\d+):([0-9A-Za-z]{${ANCHOR_HASH_LENGTH}})${ANCHOR_SEPARATOR}`,
 );
 
 /**

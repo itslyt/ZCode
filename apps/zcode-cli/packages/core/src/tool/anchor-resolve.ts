@@ -308,21 +308,29 @@ export function formatAnchorRegion(
   content: string,
   centerLine: number,
   contextLines = REGION_CONTEXT_LINES,
+  /** 要标 `>>>` 的行（hintLine 通常就是它）。只影响可读性，不改变 served。 */
+  markedLine = centerLine,
 ): RenderedAnchors {
   if (isEmptyContent(content)) return { text: "(file is empty)", servedHashes: [] };
   const lines = splitLines(content);
 
   const from = Math.max(1, centerLine - contextLines);
   const to = Math.min(lines.length, centerLine + contextLines);
-  const rendered = renderAnchorLines(lines, from, to);
+  const rendered = renderAnchorLines(lines, from, to, markedLine);
+  const marksLine = markedLine >= from && markedLine <= to;
 
   return {
-    text: `Current anchors (lines ${from}-${to}):\n${rendered.text}`,
+    text: `Current anchors (lines ${from}-${to})${marksLine ? `, >>> marks line ${markedLine}` : ""}:\n${rendered.text}`,
     servedHashes: rendered.servedHashes,
   };
 }
 
-function renderAnchorLines(lines: readonly string[], from: number, to: number): RenderedAnchors {
+function renderAnchorLines(
+  lines: readonly string[],
+  from: number,
+  to: number,
+  markedLine?: number,
+): RenderedAnchors {
   const servedHashes: string[] = [];
   const text = lines
     .slice(from - 1, to)
@@ -330,7 +338,10 @@ function renderAnchorLines(lines: readonly string[], from: number, to: number): 
       const lineNumber = from + offset;
       const hash = hashLineContent(line);
       servedHashes.push(hash);
-      return `${formatAnchorPrefix(lineNumber, hash)}${line}`;
+      // `>>>` 标出「你指的那一行」：只给范围不够，模型要在 7 行里自己找。
+      // 两个参考实现（hashline 用 >>>、oh-my-pi 用 *）收敛到同一做法。
+      const marker = lineNumber === markedLine ? ">>> " : "";
+      return `${marker}${formatAnchorPrefix(lineNumber, hash)}${line}`;
     })
     .join("\n");
 

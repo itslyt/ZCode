@@ -82,9 +82,26 @@ export interface ParsedAnchor {
   hash: string;
 }
 
+/**
+ * 剥掉排版记号，只留锚点本体。
+ *
+ * 错误信息会渲染 `>>> 22:AB3F│...` 与 `22:AB3F│content`，模型常连标记或正文一起抄回来。
+ * 抄错的是**排版**而不是语义，不该判 malformed——那是一次无意义的往返。
+ * 剥的是「行首标记」与「分隔符后的正文」，不碰锚点本身。
+ */
+function stripAnchorDecorations(raw: string): string {
+  let value = raw.trim();
+  // 行首装饰：`>>> `、`* `、`+ `、`- `（错误信息与 diff 的记号）
+  value = value.replace(/^(?:>>>|\*|\+|-)\s+/, "");
+  // 分隔符之后的正文（`22:AB3F│const x = 1;`）→ 只取锚点
+  const separatorIndex = value.indexOf(ANCHOR_SEPARATOR);
+  if (separatorIndex >= 0) value = value.slice(0, separatorIndex);
+  return value.trim();
+}
+
 /** 解析 `22:AB3F`。行号缺失或哈希非法都返回 null（由调用方给出可修正的错误）。 */
 export function parseAnchor(raw: string): ParsedAnchor | null {
-  const trimmed = raw.trim();
+  const trimmed = stripAnchorDecorations(raw);
   const separatorIndex = trimmed.indexOf(":");
   if (separatorIndex <= 0) return null;
 
@@ -110,12 +127,15 @@ export type ParsedAnchorToken =
   | { kind: "malformed" };
 
 /**
- * 解析锚点串，兼容 `22:AB3F` 与裸哈希 `AB3F`。
+ * 解析锚点串，兼容 `22:AB3F`、裸哈希 `AB3F`，以及被 `>>>` 标记过的行。
+ *
+ * 排版记号不参与语义：错误信息用 `>>> ` 标出「你指的那一行」，
+ * 模型会连标记一起抄回来，所以这里必须容忍它。见 specs/edit-anchored-verification.md。
  *
  * 裸哈希的定位需要知道文件当前内容，由调用方完成；这里只做格式判定。
  */
 export function parseAnchorToken(raw: string): ParsedAnchorToken {
-  const trimmed = raw.trim();
+  const trimmed = stripAnchorDecorations(raw);
   if (trimmed === "") return { kind: "malformed" };
 
   const separatorIndex = trimmed.indexOf(":");
