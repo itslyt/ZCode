@@ -1,6 +1,8 @@
 # Adrafinil + ZCode：按需防休眠（合盖可跑）
 
 状态：已在本机落地并实测通过。**纯配置级机制**——不改 fork 源码，因此没有上游同步成本。
+（曾评估过改 ZCode 加一个「turn 失败/中断」hook 事件来根治失败路径，结论是不做：需同步 13 个文件、跨 4 层，
+其中 trust store 的 zod 枚举是权限边界，且上游也在改这些文件——为防休眠改 4 层契约不成比例；用短 TTL 可解决同一问题，见第五节。）
 配置落在 `~/.zcode/cli/config.json`（user 层钩子），依赖外部 App [Adrafinil](https://github.com/kageroumado/adrafinil)。
 
 本文是**换机恢复手册**：在一台新 Mac 上，照「四、执行清单」逐步做即可复现，不需要读源码。
@@ -32,15 +34,22 @@ ZCode 跑长任务时合上盖子，macOS 立刻强制休眠：网络断开、�
 ## 二、架构与状态所有者
 
 ```
-ZCode turn 开始 ──UserPromptSubmit hook──▶ adrafinil acquire --tool zcode   ┐
-                                                                            ├─▶ Adrafinil daemon（引用计数）
-ZCode turn 结束 ──Stop hook──────────────▶ adrafinil release --tool zcode   ┘        │
-                                                                                     ▼ XPC
-                                                              root helper: setSleepBlocked(Bool)
-                                                              （合盖靠 pmset disablesleep）
+ZCode turn 开始 ──UserPromptSubmit hook─┐
+                                        ├─▶ 1) release（清上一轮残留）
+                                        └─▶ 2) acquire --ttl 5400   ┐
+                                                                     ├─▶ Adrafinil daemon（引用计数）
+ZCode turn 正常结束 ──Stop hook────────▶ adrafinil release          ┘        │
+ZCode turn 失败/中断 ──（无 hook）──────▶ 等 TTL 到期自动释放                 ▼ XPC
+                                                       root helper: setSleepBlocked(Bool)
+                                                       （合盖靠 pmset disablesleep）
 ```
 
 - **唯一状态所有者**：Adrafinil daemon 的断言注册表。ZCode 侧不维护任何状态，hook 只做 acquire/release 转发，天然幂等。
+- **为何 UserPromptSubmit 要先 release 再 acquire**：`release` 清掉本会话上一轮的残留 hold（失败轮次留下的），
+  `acquire` 重建新的 TTL 窗口。**顺序不能反**——反过来会刚建立就被释放。两个钩子同属一个 `hooks` 数组，
+  按数组顺序执行（`core/src/hooks/runner.ts` 的 for 循环），顺序可靠。
+- **失败路径无 hook（本方案的固有缺口）**：ZCode 只在成功路径触发 `Stop`；模型请求失败/中断走
+  `turn.ts` 的 catch 块，**不调用任何 hook**。所以失败轮次的 hold 只能等 TTL 自动到期（见第五节）。
 - **key 形状**：`zcode:<session_id>`。acquire 与 release 必须用同一个 `--tool zcode`，否则 release 打到
   `unknown:<id>`，真正的 hold 泄漏（Adrafinil 源码 `ManualHold.sessionKey` 的注释专门警示了这一点）。
 - **session_id 来源**：ZCode 在钩子 stdin JSON 里给 `session_id`（`apps/zcode-cli/packages/core/src/hooks/configured-runner-input.ts`）。
@@ -55,14 +64,15 @@ ZCode turn 结束 ──Stop hook──────────────▶ a
 | - | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
 | 1 | Adrafinil 内置 9 个 agent（claude-code/codex/cursor/gemini-cli/aider/hermes/opencode/cline/pi），**没有 zcode** | `install-hooks --tool zcode` **报错并 exit 2**（实测）。别用 `... | head` 判断成败——那取到的是 head 的 0，会看成成功。ZCode 侧钩子必须**手配**，见执行清单第 5 步。 |
 | 2 | 因第 1 条，运行中断言记录的 `pid` 是 **`-1`**                                              | Adrafinil 的**进程死亡释放**与 **90 秒 CPU 空闲释放对你都不生效**。必须靠 `--ttl` 兜底（见第 4 条与第五节的兜底表）。 |
-| 3 | `--ttl` **只认纯秒数**，`1h`/`30m` 会被拒（实测 `ignoring invalid --ttl '1h'`）            | 写 `14400` 而不是 `4h`。                                                                                            |
-| 4 | `--ttl` 会被设置项 **`manualHoldMaxHours`（默认 4h）硬夹住**                               | 实测请求 `86400` 实存 `14400`。要更长须改 Adrafinil 设置，改钩子无效。                                              |
-| 5 | **重复 acquire 不刷新 TTL**（实测同 key 二次 acquire，`expiresAt` 分毫未变）              | TTL 是「每个 turn 的额度」。单轮连续跑超 4 小时才会中途失效，需调大 `manualHoldMaxHours`。                          |
+| 3 | `--ttl` **只认纯秒数**，`1h`/`30m` 会被拒（实测 `ignoring invalid --ttl '1h'`）            | 写 `5400` 而不是 `1.5h`。                                                                                         |
+| 4 | `--ttl` 会被设置项 **`manualHoldMaxHours`（默认 4h）硬夹住**                               | 实测请求 `86400` 实存 `14400`。要更长须改 Adrafinil 设置，改钩子无效。本方案用的 5400s 低于 4h，不受影响。        |
+| 5 | **重复 acquire 不刷新 TTL**，但 **release 后再 acquire 会刷新**（实测 `acquiredAt` 前移） | 这正是本方案每轮先 release 再 acquire 的前提——每轮都是全新 TTL 窗口，不会因不刷新而过期。无此前提则 TTL 不能当兼底用。 |
 | 6 | 不带 `--ttl` 时 `expiresAt` 为 **`None`**（无 TTL）                                        | 那样只剩 24h 硬熔断兜底，**不推荐**。始终显式给 `--ttl`。                                                          |
 | 7 | `agentWaitingPolicy: grace`（等用户输入时暂缓释放）**对 zcode 无效**                       | 其 `SessionWaitEvaluator` 的 key 前缀硬编码为 `claude-code:`，`zcode:` 开头的 key 被直接跳过。见第六节。            |
 | 8 | 钩子进程的 PATH 只有 `/usr/bin:/bin:/usr/sbin:/sbin`（桌面 App 从 Finder/Dock 启动时）      | 钩子命令**必须写绝对路径**，不能写 `adrafinil`。同样的坑已记录在 `scripts/hooks/run-todo-closeout.sh` 的注释里。      |
 | 9 | 钩子配置在 **CLI 进程创建时**读入（`bootstrap/src/app/create-app.ts` → `runtime-config.ts`） | 改完配置**必须重启 ZCode**才生效，不是热加载。                                                                      |
-| 10 | 同一事件下多个钩子条目**顺序全跑**，互不覆盖（`core/src/hooks/runner.ts` 的 `filter`）      | 新增条目不会顶掉已有的 `run-todo-closeout.sh`，放心追加。                                                           |
+| 10 | 同一事件下多个钩子条目**按数组顺序全部执行**，互不覆盖（`core/src/hooks/runner.ts` 的 for 循环） | 新增条目不会顶掉已有的 `run-todo-closeout.sh`。**顺序有语义**：`UserPromptSubmit` 下 release 必须在 acquire 前。 |
+| 11 | 模型请求失败/中断走 `turn.ts` 的 catch 块，**不触发任何 hook**（已核实 catch 块内无 hook 调用） | 失败轮次的 hold 无 release，只能等 TTL。这是本方案的固有缺口，也是 TTL 要设短的原因（见第五节）。 |
 
 ## 四、执行清单（新机器上照做）
 
@@ -129,7 +139,7 @@ echo "/Applications/Adrafinil.app/Contents/Helpers/adrafinil"
 cp "$HOME/.zcode/cli/config.json" "$HOME/.zcode/cli/config.json.bak-$(date +%Y%m%d%H%M%S)"
 ```
 
-### 5. 写入两个钩子
+### 5. 写入钩子（UserPromptSubmit 两条 + Stop 一条）
 
 编辑 `~/.zcode/cli/config.json`，在 `hooks.events` 下**追加**（不要替换整个 `events` 对象，会顶掉现有钩子）：
 
@@ -144,7 +154,14 @@ cp "$HOME/.zcode/cli/config.json" "$HOME/.zcode/cli/config.json.bak-$(date +%Y%m
             {
               "type": "process",
               "command": "<CLI>",
-              "args": ["acquire", "--tool", "zcode", "--ttl", "14400"],
+              "args": ["release", "--tool", "zcode"],
+              "timeoutMs": 10000,
+              "statusMessage": "adrafinil: 清上一轮残留"
+            },
+            {
+              "type": "process",
+              "command": "<CLI>",
+              "args": ["acquire", "--tool", "zcode", "--ttl", "5400"],
               "timeoutMs": 10000,
               "statusMessage": "adrafinil: 保持电脑唤醒"
             }
@@ -175,6 +192,7 @@ cp "$HOME/.zcode/cli/config.json" "$HOME/.zcode/cli/config.json.bak-$(date +%Y%m
 - 用 `type: "process"` + `args` 数组，**不要用 shell 拼接**——彻底绕开引号与空格问题。
 - `<CLI>` 填绝对路径（第 3 步的输出）。
 - 若该事件下已有条目（如 `run-todo-closeout.sh`），**追加为新元素**，保留原有条目。
+- **`UserPromptSubmit` 下 release 必须排在 acquire 之前**（同一 `hooks` 数组内），否则 acquire 建好的 hold 会被紧跟的 release 立刻删掉。
 
 ### 6. 校验 JSON 并确认没破坏现有钩子
 
@@ -190,7 +208,7 @@ for ev, arr in d['hooks']['events'].items():
 "
 ```
 
-预期看到 4 行：`PostToolUse`/`Stop` 各一条 `run-todo-closeout.sh`（原有），`UserPromptSubmit` 一条 adrafinil acquire，`Stop` 一条 adrafinil release。
+预期看到 5 行（你的 `run-todo-closeout.sh` 两条已禁时则只见 3 条 adrafinil）：`UserPromptSubmit` 的 release + acquire、`Stop` 的 release，以及原有的 todo-closeout 条目。
 
 ### 7. 重启 ZCode
 
@@ -227,7 +245,7 @@ tail -20 "$HOME/Library/Application Support/Adrafinil/events.log"
 
 ```bash
 CLI=/Applications/Adrafinil.app/Contents/Helpers/adrafinil
-echo '{"session_id":"manual-test","hook_event_name":"UserPromptSubmit"}' | "$CLI" acquire --tool zcode --ttl 14400
+echo '{"session_id":"manual-test","hook_event_name":"UserPromptSubmit"}' | "$CLI" acquire --tool zcode --ttl 5400
 adrafinil status                      # 应出现 zcode [zcode:manual-test]
 echo '{"session_id":"manual-test"}' | "$CLI" release --tool zcode
 adrafinil status                      # 应回到 idle
@@ -235,19 +253,29 @@ adrafinil status                      # 应回到 idle
 
 ## 五、安全网（漏掉 release 时会发生什么）
 
-因为 `pid=-1`（第三节第 2 条），ZCode 场景下**只剩三道网**，按触发速度排列：
+因为 `pid=-1`（第三节第 2 条），ZCode 场景下**只剩四道网**，按触发速度排列：
 
 | 兜底                      | 触发条件                              | 对 zcode 是否有效 |
 | ------------------------- | ------------------------------------- | ----------------- |
-| TTL（我们自己给的 4h）    | 断言年龄 > `--ttl`                    | ✅ 主力            |
-| 24h max-age 硬熔断        | 断言年龄 > `maxAssertionAgeHours`(24) | ✅ 最后保险        |
+| TTL（钩子给的 1.5h）      | 断言年龄 > `--ttl`(5400s)             | ✅ 主力            |
 | 热熔断（约 80°C）         | 合盖期间温度超阈值                    | ✅ 与 pid 无关     |
 | 低电量熔断（约 20%）      | 电量低于阈值                          | ✅ 与 pid 无关     |
+| 24h max-age 硬熔断        | 断言年龄 > `maxAssertionAgeHours`(24) | ✅ 最后保险        |
 | 进程死亡释放              | 被监视的 pid 退出                     | ❌ `pid=-1`        |
 | 90s CPU 空闲释放          | 进程树 CPU 持续空闲                   | ❌ `pid=-1`        |
 
-结论：**最坏情况下（某轮 Stop 没触发）机器会多保持 4 小时不休眠，然后自动放开**，不会无限期挂住。
-若你常跑单轮 >4h 的任务，把 `manualHoldMaxHours` 调大，并同步调大钩子里的 `--ttl`。
+**最坏情况**：某轮模型请求失败/中断（`Stop` 不触发），机器会多保持**至多 1.5 小时**，然后由 TTL 自动放开；
+比旧的 4 小时兜底快得多，体感上不再像卡死。
+
+**为何 TTL 能当兜底用**：每轮 `UserPromptSubmit` 都先 `release` 再 `acquire`，所以每轮都是**全新的 5400s 窗口**，
+上一个失败轮次留下的 hold 也会在下一轮开始时立即被清掉——不必等它自己过期。
+
+**如果需要更长**：单轮正常任务真跑超 1.5 小时（长 workflow、大批量重构）时，TTL 会在任务进行中放开 Mac 睡眠。
+解法是把 `--ttl` 调大，同时确保不超过 `manualHoldMaxHours`（默认 4h），否则会被夹住。但调大就等于降低失败时的兜底速度——
+两个需求互相拉扯，按自己的任务时长选。
+
+**进度中断 vs 长等待**：这个缺口只在“整个 turn 失败/中断”时出现。正常长等待（模型正在慢慢生成）不会——
+此时 `Stop` 未触发，hold 是挂着的。
 
 ## 六、已知不生效项（不要误配）
 
@@ -258,6 +286,8 @@ adrafinil status                      # 应回到 idle
    本方案不依赖它（走 hook 显式 acquire）。
 3. **`adrafinil install-hooks --tool zcode`**：只接受内置 9 个 agent 名，自定义名会被拒。**只能手配 ZCode 侧钩子**。
 4. **`--display`**：用于「agent 需要看屏幕」的场景（睡眠会让可访问性树塌掉）。ZCode 的多数工具不需要，未启用。
+5. **失败/中断路径的 hook**：ZCode 没有 `TurnError`/`TurnEnd` 类事件（可选项就 schema 里那 7 个），失败路径不触发任何 hook。
+   本方案用「每轮 release+acquire + 1.5h TTL」绕过，而不是去加事件（原因见开头的成本评估）。
 
 ## 七、排障
 
