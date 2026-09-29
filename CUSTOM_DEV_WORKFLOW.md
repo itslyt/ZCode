@@ -30,10 +30,11 @@ node scripts/check-workspace-freshness.mjs                  # AGENTS.md 要求�
    - 同一需求的多个文件一起提交；需求之间独立就拆成多个提交，按应审查的顺序排。
    - 提交后在回复里报出 commit hash，让人能直接对账。
    - 不要把手头这轮改动留成未提交状态——后续所有步骤（打包、真机验证）都以「改动已提交」为前提。
-8. **自动打包并交付 dmg（默认动作，不用问）。** §3 全绿且改动已提交后，直接跑 §5 的打包命令，
-   在回复里给出 dmg 的绝对路径和本次改动点，然后**停下等人在外面拖拽安装**。
+8. **自动打包并交付 dmg（默认动作，不用问）。** §3 全绿且改动已提交后，直接跑 §5 的打包命令。
+   - **改动含 UI：先在 dist 产物上按 §4.3 验证并截图，再交付。** 打包本身就是"出包 → 自验"顺序里的第一步，不用等指令；
+     验完在回复里给出 dmg 绝对路径、本次改动点、截图与已验证/未验证范围，然后**停下等人在外面拖拽安装**。
    - 理由：安装必然要退出 Preview，而 agent 就跑在 Preview 里——自举循环的最后一步 agent 做不到，
-     只能交给人。所以 agent 的职责到「包已就绪」为止，不该多问一句「要不要打包」。
+     只能交给人。所以 agent 的职责到「包已就绪且已自验」为止，不该多问一句「要不要打包」。
    - 例外：本轮明确只调查/只写 spec 没有行为改动，或改动只涉及文档——那时不打包。
 
 ## 3. 静态检查（每次改动必跑，报告真实结果）
@@ -69,7 +70,9 @@ TSX_TSCONFIG_PATH=packages/ui/tsconfig.json node --import tsx --test packages/ui
 
 `packages/shared` 无测试。`apps/zcode-cli/packages/core` 的 `test` 脚本是本 fork 新增的；若换包先看该包 `package.json`。
 
-## 4. 真机验证（四层，按需组合）
+## 4. 真机验证（按需组合；UI 改动必走 §4.3）
+
+**本 fork 只交付桌面端，所以 UI 改动必须在桌面端（§4.3）验证并截图。** §4.2 的 Web 端只是同一份 renderer 代码的另一个宿主，"Web 验过"不等于"桌面端验过"，也不能替代 §4.3 的截图留证。
 
 ### 4.0 headless CLI（验证工具行为最快的一层）
 
@@ -93,10 +96,10 @@ ZCODE_ENV=production node /Users/liuyutong08/Work/ZCode/node_modules/.bin/tsx sr
 - 通用坑：表/列名以 `pragma_table_info` 为准再写查询（如会话表为 `session`、时间列 `time_updated`）；SQL 字符串字面量用单引号。
 - 用途：确认数据是否落库、字段值域、覆盖率；UI 不显示时先查数据再查渲染。
 
-### 4.2 Web 端 + agent-browser（推荐主链路）
+### 4.2 Web 端 + agent-browser（改数据/协议逻辑的快链路；不能替代 §4.3）
 
 ```bash
-cp -a ~/.zcode ~/.zcode-verify        # 隔离数据副本（含登录态）；绝不与在跑实例共用同一数据目录
+mkdir -p ~/.zcode-verify && cp -a ~/.zcode ~/.zcode-verify/.zcode   # 隔离数据副本（含登录态）；数据根是 <base>/.zcode，少这一层会停在登录页
 ZCODE_ENV=production ZCODE_DATA_BASE_DIR=$HOME/.zcode-verify pnpm dev:web   # 后台：server :3030 + web :5173
 agent-browser open http://localhost:5173/
 agent-browser snapshot -i             # 拿 ref；click @eNN 交互
@@ -109,14 +112,31 @@ agent-browser screenshot /tmp/x.png   # 留证
 - **改 `apps/zcode-cli` 后必须** `node scripts/build-desktop-agent-cli.mjs` **并重启 dev:web**：web server 起的 agent 是预打 bundle `apps/zcode-cli/packages/cli/dist/zcode.cjs`，dev:web 不重编它（症状：host 日志 ZodError 缺字段）。
 - 冷启动无 runtime：侧栏/会话视图可能为空（existing-only 语义）；在 composer 发一条消息拉起 runtime 后再验历史数据。composer 输入用 `agent-browser keyboard type`（`inserttext` 对 Web 编辑器无效）；「发送」按钮禁用态=编辑器空。
 - Radix 浮层内容读 `[data-radix-popper-content-wrapper]` 的 innerText；功能元素的 testid 以 `packages/shared/src/test-ids.ts` 为准。
-- 桌面端独有 surface（如部分 composer 控件）Web 不渲染，验不了就走 §4.3。
+- 桌面端 UI 与部分独有 surface（如 composer 控件）Web 不渲染；**UI 改动一律走 §4.3 在桌面端验证并截图**。
 
-### 4.3 Electron CDP（备用，仅桌面独有 surface 用）
+### 4.3 Electron 桌面端（UI 改动的必验层，需截图）
 
-- dev 版主进程**硬编码 CDP 9229**（`packages/desktop/src/main/index.ts`）；用 `ZCODE_DISABLE_FIXED_REMOTE_DEBUGGING_PORT=1` 关闭后以 `--remote-debugging-port=<port>` 自选。
-- **单实例锁绑 userData「ZCode Dev」**，`--user-data-dir` 无效（main 会 setPath 覆盖）→ 与任何在跑的 dev 实例互斥，后起者静默退出。验证前先确认无其他 dev 在跑；清理进程时 pkill 签名要精确（曾误杀用户 dev 实例）。
-- 手动三段式：`pnpm --filter @zcode/desktop exec tsup` → `pnpm exec vite dev`（:5174）→ `ELECTRON_RENDERER_URL=http://localhost:5174 ZCODE_DATA_BASE_DIR=<副本> <repo>/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron . --remote-debugging-port=<port>`；再 `agent-browser connect <port>`。
-- 判别连上哪个实例：eval `location.href` + 侧栏会话对照数据目录；fetch `/src/...` 返回 index.html 是 SPA fallback，**不代表代码旧**。
+**打包产物可直接开 CDP，不必手动三段式**（实测可用）：
+
+```bash
+APP="packages/desktop/dist/mac-arm64/ZCode Preview.app/Contents/MacOS/ZCode Preview"
+nohup env \
+  ZCODE_ENV=production \
+  ZCODE_DATA_BASE_DIR="$HOME/.zcode-verify" \
+  ZCODE_DESKTOP_APPLICATION_NAME="ZCode Preview Verify" \
+  ZCODE_DESKTOP_USER_DATA_DIR="$HOME/.zcode-verify-userdata" \
+  ZCODE_DESKTOP_SESSION_DATA_DIR="$HOME/.zcode-verify-userdata/session" \
+  "$APP" --remote-debugging-port=9333 > /tmp/zcode-electron-verify.log 2>&1 &
+agent-browser connect 9333
+agent-browser tab                 # 确认 target 指向 dist/.../app.asar，而不是你在跑的安装版
+```
+
+- **打包版默认不开 CDP**：`packages/desktop/src/main/index.ts` 只对 `!app.isPackaged` 自动加 9229，所以验 dist 产物必须显式传 `--remote-debugging-port`。
+- **必须隔离身份，否则静默起不来**：单实例锁绑 userData（main 里 `app.setPath("userData", ...)`），沿用同一 app 名会与在跑的安装版互斥、后起者直接退出。上面那组 `ZCODE_DESKTOP_*` 就是为此，**验证期间安装版不受影响**（实测两者可并存）。`--user-data-dir` 对 Electron 无效，别指望它隔离。
+- 想验**尚未提交**的源码改动才走手动三段式：`pnpm --filter @zcode/desktop exec tsup` → `pnpm exec vite dev`（:5174）→ `ELECTRON_RENDERER_URL=http://localhost:5174 <repo>/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron . --remote-debugging-port=<port>`。已提交的改动优先验 dist 产物，那才是真交付物。dev 版硬编码 CDP 9229，可用 `ZCODE_DISABLE_FIXED_REMOTE_DEBUGGING_PORT=1` 关掉后自选端口；清理进程时 pkill 签名要精确（曾误杀用户 dev 实例）。
+- **鼠标与 hover**：`querySelector().click()` 和合成 MouseEvent 打不开"悬停才出现"的入口（如项目行的「查看文件」）——用 `hover @ref` 或 `mouse move <x> <y>` 配 `mouse down/up`；`find text <文本> hover` 亦可。**文件树单击只选中，双击才开预览**（`dblclick`）。
+- **截图**：`screenshot` 出的 PNG 有效（太大读不出时 `sips -Z 1400` 缩放再看）。若图像始终读不出来，改用 `eval` + `getBoundingClientRect()` 度量几何——`position` 与 left/width/height 同样能证明布局行为；但 UI 改动**仍要留至少一张截图**。
+- 数据根是 `$ZCODE_DATA_BASE_DIR/.zcode`（`packages/services/src/paths.ts`），**不是该目录本身**；层级传错会缺 `credentials.json`，症状停在登录页。
 
 ### 4.4 日志层（工具使用/报错分布的唯一结构化来源）
 
@@ -235,12 +255,15 @@ comm -23 <(git diff --name-only <合并前HEAD> | sort) \
 - **`cmd | tail; echo $?` 报的是 `tail` 的退出码**，会把失败报成成功；要取 `${PIPESTATUS[0]}`。而后台 job 的「exit code」是整条脚本最后一条命令的，用 `echo` 结尾必然 0——判成功必须看输出里的真实退出码，别信 job 状态。实测：`pnpm --dir apps/zcode-cli build` 因 `turbo: command not found` 失败，却被 job 报成 exit 0。
 - **`apps/zcode-cli` 内没有 turbo**：该目录的 `build`/`typecheck`/`lint` 脚本是 `turbo run ...`，直接跑必然 `sh: turbo: command not found`（根 `node_modules/.bin/turbo` 不在它的 PATH 上）。要按依赖顺序逐包跑：`shared-types → contracts → i18n → tui → dynamic-workflow → dynamic-workflow-runtime → adapters → core → bootstrap`。
 - **上游同步后必须先重建 `apps/zcode-cli` 再 typecheck**：`dist/` 被 gitignore 且是包的解析入口（`package.json` 的 `main`/`types` 指向 `dist/`），不重建就会看到成片「`@zcode/contracts` has no exported member」——那是 dist 旧，不是代码错。先用源码确认符号存在（`grep -rn SYMBOL apps/zcode-cli/packages/<pkg>/src/`），再看 `dist/` 缺失，即可定性。
+- **`ZCODE_DATA_BASE_DIR` 指向的是 base，数据根在它下面的 `.zcode`**（`packages/services/src/paths.ts` 的 `getZCodeDataRootDir`）。隔离副本要 `cp -a ~/.zcode <副本>/.zcode`；少这一层会缺 `credentials.json`，症状是 App 停在登录页，很容易误判成登录态失效。
+- **`--user-data-dir` 对 Electron 无效**：main 会 `app.setPath("userData", ...)` 覆盖，且单实例锁绑它。要与在跑的安装版并存验证，用 `ZCODE_DESKTOP_APPLICATION_NAME` + `ZCODE_DESKTOP_USER_DATA_DIR` 隔离身份（§4.3），否则后起者静默退出、看起来像启动失败。
+- **"悬停才出现"的入口点不开多半是事件类型问题**，不是元素不存在：`querySelector().click()` 与合成 `new MouseEvent(...)` 都不触发 React 的 hover，要用 `hover @ref` 或 `mouse move <x> <y>` 配 `mouse down/up`。同理文件树**单击只选中、双击才开预览**。
 
 ## 8. 外部能力清单
 
-| 能力                   | 用途                                           | 入口                                                    |
-| ---------------------- | ---------------------------------------------- | ------------------------------------------------------- |
-| agent-browser CLI      | 浏览器自动化（Web 验证）/ Electron CDP（备用） | `open / connect / snapshot / click / eval / screenshot` |
-| node:sqlite            | DB 只读直查                                    | `node -e` 或临时 `.mjs`                                 |
-| nvm node v24 + pnpm 10 | 检查 / 测试 / 构建                             | 见 §1                                                   |
-| 无其他外部服务         | 验证不依赖网络（登录态来自数据目录副本）       | —                                                       |
+| 能力                   | 用途                                                       | 入口                                                           |
+| ---------------------- | ---------------------------------------------------------- | -------------------------------------------------------------- |
+| agent-browser CLI      | 浏览器自动化（Web 验证）/ 桌面端 CDP 截图（UI 必用，§4.3） | `connect / tab / hover / mouse / dblclick / eval / screenshot` |
+| node:sqlite            | DB 只读直查                                                | `node -e` 或临时 `.mjs`                                        |
+| nvm node v24 + pnpm 10 | 检查 / 测试 / 构建                                         | 见 §1                                                          |
+| 无其他外部服务         | 验证不依赖网络（登录态来自数据目录副本）                   | —                                                              |
