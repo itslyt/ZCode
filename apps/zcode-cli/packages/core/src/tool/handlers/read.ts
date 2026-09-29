@@ -61,7 +61,7 @@ const READ_PROVIDER_DESCRIPTION = [
   "- `file_path` must be an absolute path.",
   `- Reads up to ${READ_DEFAULT_MAX_LINES} lines by default.`,
   "- You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters",
-  "- Each line is prefixed with an anchor `N:HASH│` (line number, colon, 4-character content hash). Pass anchors to EditAnchored to change those lines without retyping them.",
+  "- Each line is prefixed with an anchor `N:HASH│` (line number, colon, 4-character content hash). Pass anchors to EditAnchored to change those lines without retyping them. Read is what produces them: content you see through any other tool carries no anchors and cannot be edited by anchor.",
   "- Anchors stay valid for lines you have already seen; after an edit, use the anchors returned in that edit's result.",
   "- Reads images (PNG, JPG, …) and presents them visually.",
   "- Reads videos (MP4, MOV, WEBM, …) and presents them as video input (subject to ZCode's video input limit).",

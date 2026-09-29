@@ -70,12 +70,15 @@ const EDIT_ANCHORED_PROVIDER_DESCRIPTION = [
   "",
   // 锚点格式（`N:HASH│` 的含义）由 Read 的描述定义，这里不再重述一句；
   // 保留的是本工具独有的用法与失败语义。见 specs/tool-definition-slimming.md §3.8。
+  // 最后两条是 §3.9 补的「锚点只能从 Read 得到」：一次真实会话的 13 次 unserved
+  // 都源于用 Bash 看内容后自拼哈希，属于事前指引而非工具缺陷。
   "- `remove_from`/`remove_to` bound the range to replace; for a single line pass the same anchor twice.",
   "- The 4-character hash alone (`AB3F`) is accepted when it uniquely identifies a line — no line number needed.",
   "- `replacement_text` replaces the range; use `\"\"` to delete it.",
   "- Every entry is resolved against the file's original content, so entries never displace each other. All-or-nothing.",
   "- Anchors stay valid after edits elsewhere in the file: if line numbers moved, the anchor's hash re-locates it. The result returns fresh anchors for the changed region.",
-  "- Only lines you have already read can be edited. If an anchor is rejected, the error includes the region's current anchors.",
+  "- Only lines you have already read with Read can be edited — Read is the only source of anchors. Content seen any other way (`cat`, `sed`, a Bash command) has no anchors, so an anchor composed from it will be rejected as never shown.",
+  "- If an anchor is rejected, the error includes the region's current anchors; copy one of those verbatim and retry.",
 ].join("\n");
 
 const NOTEBOOK_FILE_MESSAGE =

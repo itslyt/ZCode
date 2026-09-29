@@ -197,3 +197,16 @@ test("identity 不再复述工具描述已有的编辑细节", () => {
     assert.ok(!identity.includes(detail), `编辑细节应只在工具描述里说一次：${detail}`);
   }
 });
+
+// §3.9：一次真实会话的 13 次 unserved 全部源于用 Bash 看内容后自拼锚点。
+// 这两条指引是唯一能事前拦下它的手段，删掉会退回那 13 次失败。
+test("锚点来源被点明：只有 Read 产出锚点，Bash 看到的内容不算", () => {
+  const anchored = editAnchoredToolEntry.metadata.description ?? "";
+  assert.ok(anchored.includes("Only lines you have already read"), "事前指引必须留");
+  assert.ok(anchored.includes("Read is the only source of anchors"));
+  assert.ok(anchored.includes("cat") && anchored.includes("sed"), "需要给出非 Read 的反例");
+
+  const read = readToolEntry.metadata.description ?? "";
+  assert.ok(read.includes("N:HASH"), "锚点格式的定义属于 Read");
+  assert.ok(read.includes("carries no anchors"), "Read 需说明：其他工具看到的内容不带锚点");
+});

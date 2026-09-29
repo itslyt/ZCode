@@ -177,6 +177,40 @@ stale-anchor 重试、批次纪律。这些细节**必须留在工具描述**：
 `edit-batch.ts` 已把所有编辑钉在**原文偏移**上再倒序应用，批内无顺序耦合，那条描述的是一个
 **已被实现消除**的隐患。
 
+### 3.9 第三轮：点明「锚点只能从 Read 得到」
+
+前两轮都在删冗余；这一轮补一个**缺失的事前指引**，依据是一次真实会话的失败统计。
+在 `sess_f7d418fa` 的 26 次 `tool.call.failed`（全部是 `EditAnchored`）中，13 次是
+`references anchor X, which was never shown to you for this file`（`unserved`）。
+
+根因不是工具缺陷，而是**描述没有覆盖一条模型会自然做出的推断**：用 `Bash`（`sed`/`cat`）
+看几行比 `Read` 便宜，于是模型先 Bash 看内容、再凭内容**自己拼一个锚点哈希**。
+
+事实边界（已核对源码，是本条描述可以断言的全部）：
+
+- 锚点前缀 `N:HASH│` **只**由 `read-text.ts` 渲染，`servedAnchors` **只**由
+  `read.ts` / `edit-anchored.ts` 写入。因此除 `Read` 外**没有任何工具**能产出锚点。
+- `Bash` 输出是原样 stdout，不含锚点；它看到的内容不会进入 served 集合
+  （`anchor-served.ts`：只增不减、按文件聚合）。
+- 失败统计与压缩无关：该会话只有 2 次压缩（均在 00:43/00:44），而失败集中在 4 个
+  时间簇（17:27、02:23、03:13–03:19）。
+
+改动：
+
+- **EditAnchored**：`Only lines you have already read can be edited` 一句扩写，
+  点明「Read 是唯一来源」并给出 Bash 反例。它仍是**事前**指引——与 §3.8 的分界判据一致
+  （事前能省下失败往返，错误消息只能事后补救）。
+- **Read**：在锚点那条上补一句「锚点由本工具产生；其他方式看到的内容不带锚点」。
+
+不改 `reject-and-serve`（`unserved` 时回传该区域当前锚点）：实测它一直在正常工作，
+那 13 次失败后模型照抄回传锚点即成功。
+
+第三轮新增：
+
+14. **EditAnchored 描述**：含「Read 是锚点的唯一来源」与 `Bash` 反例（`cat`/`sed` 一类），
+    且仍含 `Only lines you have already read`（已由 `tool-definition-slimming.test.ts` 锁住）。
+15. **Read 描述**：仍含 `N:HASH`（定义属于 Read），并含「其他方式获取的内容不带锚点」。
+
 ## 4. 验收场景
 
 1. **AskUserQuestion 模型面**：`toContracts()` 产出的 `inputSchema.properties` 恰为 `{questions}`；
@@ -222,6 +256,10 @@ stale-anchor 重试、批次纪律。这些细节**必须留在工具描述**：
 | 其余 11 个      | 10807 | 10807 | 0     | 本轮未改动                              |
 
 **合计 27 808 → 25 324 字符，≈9 269 → 8 441 token（−8.9%）**。
+
+第三轮（§3.9）净 **+342 字符 ≈ +114 token**（EditAnchored +224、Read +118）——
+这是本 spec 里唯一一次**加**描述，换掉的是该会话 13 次 `unserved` 失败及其重试往返。
+与上表不同口径：只计被改的那两句，不含代码注释。
 
 （两次测量用同一脚本、同一套 17 个工具、同一口径：`JSON.stringify({name, description, input_schema})`。
 先前正文里出现的 29 263 / 9 754 是**线上真实请求的原始字节**——含 provider 附加字段与不同序列化顺序，
