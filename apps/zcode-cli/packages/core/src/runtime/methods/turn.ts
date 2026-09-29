@@ -45,6 +45,7 @@ import type { AgentRuntimeInternal } from "../internal.js";
 import { createRuntimeCommandId } from "../command-queue.js";
 import type { PromptRuntimeCommand } from "../command-queue.js";
 import { enqueueCancellableRuntimeCommand } from "./runtime-command-submit.js";
+import { READ_SESSION_CONTEXT_TOOL_NAME } from "@zcode/contracts";
 import { buildReferencedSessionContextReminderBody } from "../../session-context/read-session-context.js";
 import { runRegularTurnLoop } from "./turn-loop.js";
 import {
@@ -866,7 +867,11 @@ function injectReferencedSessionContextReminderIntoMessageHistory(
   options?: ExecuteTurnOptions,
 ): void {
   if (options?.inputVisibility === "model-only") return;
-  const reminderBody = buildReferencedSessionContextReminderBody(input);
+  // 按**实际注册结果**声明回读通道：默认面里有 ReadSessionContext，但会话可用
+  // toolAllowlist 收窄掉它；那时点名它就是指向一个模型没有的工具（与 024c6f3 同类）。
+  const reminderBody = buildReferencedSessionContextReminderBody(input, {
+    canReadSessionContext: this.getToolRegistry().has(READ_SESSION_CONTEXT_TOOL_NAME),
+  });
   if (!reminderBody) return;
   this.messageHistory.addAttachment("referenced_session_context", reminderBody);
 }

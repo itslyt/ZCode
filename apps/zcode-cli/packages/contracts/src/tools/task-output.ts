@@ -9,7 +9,12 @@ export const TASK_OUTPUT_ALIASES = [
   "BashOutput",
 ] as const;
 
-export const TASK_OUTPUT_PROVIDER_DESCRIPTION = `DEPRECATED: Background tasks return their output file path in the tool result, and you receive a <task-notification> with the same path when the task completes.
+// 原先这段以 `DEPRECATED:` 开头，但工具仍在工具面里、实测仍被调用（全局 3 次），
+// 而同一段下文又在教怎么用它（task_id / block）——一个仍在注册的工具劝模型别用它，
+// 比“描述太长”更有害。首行的本意是「后台任务已经把输出路径随结果给了你」，
+// 现在按这个本意写成偏好提示，不再谎称废弃。见
+// specs/context-compaction-optimization.md §15.4。
+export const TASK_OUTPUT_PROVIDER_DESCRIPTION = `Background tasks already return their output file path in the tool result, along with a <task-notification> carrying the same path when the task completes — so prefer reading that file directly when you just need the output.
 - For bash tasks: prefer using the Read tool on that output file path — it contains stdout/stderr.
 - For local_agent tasks: use the Agent tool result directly. Do NOT Read the .output file — it is a symlink to the full subagent conversation transcript (JSONL) and will overflow your context window.
 - For remote_agent tasks: prefer using the Read tool on the output file path — it contains the streamed remote session output (same as bash).

@@ -95,6 +95,9 @@ const CODING_ONLY_TOOLS = [
   "TaskOutput",
   "TaskStop",
   "AskUserQuestion",
+  // 引用 #sess_*/「接着那个会话干」与压缩后「回读本会话」都靠它；
+  // 与 Task/ListModels 不同，它有真实的生产点，见上方注释。
+  "ReadSessionContext",
 ] as const;
 
 /**
@@ -111,7 +114,13 @@ const CODING_ONLY_TOOLS = [
  * Agent 自己的返回文案就写着 "use SendMessage with to: <agentId>"）+ TaskOutput/TaskStop
  * （后台任务的读输出与停止，后台 Bash 也走这条）。去掉其中任何一个都会让后台模式变成半截能力，
  * 与 DSH 保留 subagent + job_output/job_kill 是同一个取舍。Task（配置门控的旧入口）与
- * ReadSessionContext / ListModels 不进名单。
+ * ListModels 不进名单。
+ *
+ * `ReadSessionContext` 于 2026-09-29 加回：它此前被排除，但「引用 #sess_xxx」的提醒
+ * （session-context/references.ts）无条件叫模型调它，而它不在面里——于是引用会话时提醒
+ * 指向一个不存在的工具。两条路（改文案 / 加工具）中用户选了加回：引用会话读不到
+ * 不是文案问题而是功能残的。代价 987 字符 ≈ 329 token（占 450K 窗口 0.07%）。见
+ * specs/context-compaction-optimization.md §15。
  */
 export function resolveBuiltInToolAllowlist(
   config: AgentRuntimeConfig,

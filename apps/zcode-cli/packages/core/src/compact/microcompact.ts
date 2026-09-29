@@ -20,8 +20,9 @@ const DEFAULT_MICROCOMPACT_IDLE_THRESHOLD_MINUTES = 60;
 // 注意适用边界：它只减少「隔多久清一次」，**在未启用重取 pin 时**不减少最终被销毁
 // 的结果数（清空不可逆且每次清「除最新 N 条外全部」）——真正保住证据的是可压工具名单
 // （见 DEFAULT_MICROCOMPACT_COMPACTABLE_TOOLS）。
-// 启用 pin（见 resolvePinnedRefetchIndexes）后，被销毁的条数确实会减少（实测两个会话各少 27/28 条），
-// 但**不要把它读成「pin 能省 token」**：反事实重放显示 pin 反而让期末常驻多出 ~14K–16K token。
+// 启用 pin（见 resolvePinnedRefetchIndexes）后，被销毁的条数确实会减少（离线重放：少 15~28 条），
+// 但**不要把它读成「pin 能省 token」**：反事实重放显示 pin 反而让期末常驻多出 ~14K~24K token
+// （区间取自离线重放，随快照时刻漂移，见 specs §14.2）。
 // 它换掉的是循环里那条目标上的重复工具往返，不是上下文占用。见 specs §14.2。
 export const DEFAULT_MICROCOMPACT_MIN_TOKEN_SAVINGS = 2_000;
 export const DEFAULT_MICROCOMPACT_THRESHOLD_RATIO = 0.9;
@@ -239,7 +240,7 @@ interface CompactableToolResultCollection {
  * 读了两次，没有循环，不该 pin（这一条正是 14.4 验收表里的第 2 行）。
  *
  * 成本：被 pin 的那一份会长期留在窗口里。反事实重放（两个长会话）显示被 pin 的目标仅
- * 15 个（4.2%/5.1%），但期末常驻多出 ~14K–16K token——**这不是省 token 的优化**，
+ * 15 个（4.2%/5.1%），但期末常驻多出 ~14K~24K token（离线重放区间）——**这不是省 token 的优化**，
  * 换掉的是循环中的重复工具往返。见 specs §14.2。
  */
 function resolvePinnedRefetchIndexes(

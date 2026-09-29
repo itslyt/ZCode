@@ -140,10 +140,10 @@ export function buildCompactSummaryMessage(
     /**
      * 告诉模型「被压掉的原文仍在」，把「看不见」与「不存在」分开。
      *
-     * `canReadSessionContext` 必须来自**实际注册结果**（`registry.has`），不能假设
-     * 该工具在场：本 fork 的默认工具面由 CODING_ONLY_TOOLS 收窄，名单里**没有**
-     * ReadSessionContext。曾经无条件写死「call ReadSessionContext」的文案，指向了
-     * 一个模型没有的工具——与 024c6f3 修掉的「描述指向不存在的工具」是同一类缺陷。
+     * `canReadSessionContext` 必须来自**实际注册结果**（`registry.has`）：
+     * ReadSessionContext 已于 2026-09-29 加回默认工具面（见 specs §15），
+     * 但会话仍可用 `toolAllowlist` 收窄掉它；那时点名它就是指向一个模型没有的工具
+     * ——与 024c6f3 修掉的「描述指向不存在的工具」是同一类缺陷。
      */
     recoveryPointer?: {
       sessionId: string;
@@ -162,8 +162,8 @@ ${formatCompactSummary(summary)}`;
   // 压缩把旧消息从模型面抹掉，但原文仍在会话库里（message/part 表不删）。
   // 不告知这条通道，模型会把“看不见”当成“不存在”，进而重做已完成的工作或凭空猜测。
   //
-  // 只承诺**本运行时确实有**的通道：ReadSessionContext 在本 fork 的默认工具面里缺席，
-  // 那就不能叫它。两种文案都不指向不存在的工具，也不新增工具。
+  // 只承诺**本运行时确实有**的通道。ReadSessionContext 现在在默认工具面里，
+  // 但被 toolAllowlist 收窄时会缺席，所以仍按真实注册结果分支。
   if (options.recoveryPointer) {
     const { sessionId, canReadSessionContext } = options.recoveryPointer;
     const how = canReadSessionContext

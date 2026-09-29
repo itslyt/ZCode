@@ -649,32 +649,39 @@ PTL 重试路径仍按「轮数」扩容（它们的目标是精确覆盖 overfl
 ### 14.2 pin 的真实成本与收益（反直觉，必记录）
 
 **先纠正一个我在写本节初稿时的错误断言。** 初稿写「pin 减少了整个会话里被清空的条数，
-所以能省钱」。对**同一份会话历史**做反事实重放（按 message 分组、keep=5），结果相反：
+所以能省钱」。对**同一份会话历史**做反事实重放（按 message 分组、keep=5），结果相反。
+
+因为 `sess_f7d418fa` 是**仍在写入的实时会话**，重放结果随快照时刻漂移（实测多轮重跑：
+清除差 −15~−28 条、常驻增量 +14K~+24K token）。记区间而非单点：
 
 ```text
-                     清除条数        期末存活可压字符
-f24fbcc0  pin 关     384             ~6.4K（≈2.1K tok）
-          pin 开     357 (−27)        ~49K（≈16K tok）   ← 常驻变多
-f7d418fa  pin 关     322             ~12K（≈3.9K tok）
-          pin 开     294 (−28)        ~52K（≈17K tok）
-被 pin 的不同目标：15 / 15（仅占 4.2% / 5.1%），合计 ≈43K / 48K chars
+                    清除条数      期末常驻（可压类别）
+pin 关              379 / 327     ~2.1K tok
+pin 开              353~364 / 299~311
+Δ（少清）            −15 ~ −28
+Δ（常驻）           +14K ~ +24K tok
+被 pin 的不同目标    15 / 15（占可重取目标 4.2% / 5.1%）
 ```
 
 读法：
 
-- pin 确实**少清了 ~27–28 条**（真少清了，不是把一条从 A 挪到 B）。
-- 但它同时让**期末常驻**多出 ~14K–16K token，因为被 pin 的那一份从此一直留在窗口里。
-- 净效果：**上下文常驻更大**。所以 pin **不是**省 token 的优化——节省量级的说法是错的（已删）。
+- pin 确实**少清了十几到二十几条**（真少清了，不是把一条从 A 挪到 B）。
+- 但它同时让**期末常驻**多出 **~14K~24K token**，因为被 pin 的那一份从此一直留在窗口里。
+- 净效果：**上下文常驻更大**。所以 pin **不是**省 token 的优化——「能省 token」的说法是错的。
+
+**数据可信度声明**：以上是对库中已落盘历史的**离线重放**，不是运行时实测。它是近似值：
+重放不包含窗口截断、reasoning 剥离、以及 microcompact 与 autocompact 的交互；
+两个数字区间都随快照时刻漂移。真正的结论以装上后观察为准。
 
 **它换的是什么**：一次「清除→重取」不只是 token 往返，还包含一次工具调用往返（模型读
 重取指令、发起调用、等结果）。在长会话里这是**比 token 更贵**的东西（见 §12.4：主路径一次
-摘要调用实测可达 115 s）。pin 用 ~14K 常驻 token 换掉循环中那条目标的重复工具往返。
+摘要调用实测可达 115 s）。pin 用十几 K 常驻 token 换掉循环中那条目标的重复工具往返。
 
-**残余风险（必须盯）**：常驻 +14K 会让 autocompact 触发更早。两个会话的 autocompact 阈值是
-416 000，而它们常驻 400K–530K，已经贴着阈值——**所以这条副作用不能只靠推理，要看实际数据**。
-落地后重点观察：autocompact 触发频率是否上升、`compact.no_shrink` 是否出现。
-若频率明显上升，退路是把 pin 的适用范围从「曾被清过」收紧到「曾被清过且体积大」
-（极短的失败桩占被 pin 目标里的多数，见下）。
+**残余风险（必须盯）**：常驻变大（~+14K~24K）会让 autocompact 触发更早。两个会话的
+autocompact 阈值是 416 000，而它们常驻 400K–530K，已经贴着阈值——**所以这条副作用不能只
+靠推理，要看实际数据**。落地后重点观察：autocompact 触发频率是否上升、`compact.no_shrink`
+是否出现。若频率明显上升，退路是把 pin 的适用范围从「曾被清过」收紧到
+「曾被清过且体积大」（极短的失败桩占被 pin 目标里的多数：15 个里有 7 个只有 93 字符）。
 
 覆盖面小的原因：只有**真正循环过**的目标才进入 `clearedRefetchKeys`，不是「淘汰最少」。
 被 pin 的 key 里那些 10x/3x 的条目多为极短的 "Wasted call" 残留桩——**该比例偏悲观**：
@@ -728,4 +735,80 @@ f7d418fa  pin 关     322             ~12K（≈3.9K tok）
 - **`compact.no_shrink` 仍是 `warn`**，未升级为 fail-closed：两个会话至今 **0 次**发生，
   没有真实样本，硬失败会把可恢复场景变成会话中断。
 - **precompute（CC 第三层）**未做：实测主路径 `compact.completed` 最长 115 s，仍在关键路径上等。
-- **PTL 重试路径**仍按轮数扩容（§13.3）。
+  - **PTL 重试路径**仍按轮数扩容（§13.3）。
+
+## 15. 把 `ReadSessionContext` 放回工具面，并清掉两处失实引用（2026-09-29 第五轮）
+
+### 15.1 问题：同一个「指向不存在工具」的缺陷有**两个**生产点，上轮只修了一个
+
+第四轮我只修了压缩摘要那一处（`compact/prompt.ts`），因为我搜 `ReadSessionContext` 只看了
+`compact/` 与 rollout 的 `toolNames`。实际上游还有一个同类生产点：
+
+```
+用户写 "#sess_xxx"
+   └─ extractSessionReferences()                      session-context/references.ts:5
+      └─ buildReferencedSessionContextReminderBody()   references.ts:13
+         └─ "If a referenced session's history is needed,
+              call ReadSessionContext with the exact sessionId…"   ← references.ts:22
+            └─ injectReferencedSessionContextReminderIntoMessageHistory()  runtime/methods/turn.ts:863
+               └─ addAttachment("referenced_session_context")  → 进入请求（model-only）
+```
+
+实测（`sess_f7d418fa`，2026-09-29T02:15:56）：提醒确实进了请求，而**同一个请求的 `toolNames` 是那 17 个、不含 `ReadSessionContext`**——模型被叫去调一个它没有的工具。
+
+### 15.2 决定：把工具加回工具面（用户拍板）
+
+两条路曾经都可行（改文案 vs 加工具）。第四轮我选了前者（不扩大工具面）；本轮用户明确要求加回，
+理由是「引用 `#sess_xxx` 看起来能被读到、实际读不到」不是文案问题，而是**功能残的**。
+
+改动：`CODING_ONLY_TOOLS` 加入 `ReadSessionContext`（17 → 18 个）。
+
+**同时回改第四轮的条件式文案**：既然工具现在真的在面里，`compact/prompt.ts` 里那句
+fallback（「read it back from your own session store」）就不再是常规路径了。
+
+### 15.3 工具面新增项的尺寸（必须记录，因为它与「收窄」方向相反）
+
+| 项                                                                           | 值                                                                            |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `ReadSessionContext` 进 provider 请求的体积（name+description+input_schema） | 987 字符 ≈ 329 token                                                          |
+| 占 450K 窗口                                                                 | 0.07%                                                                         |
+| 换来的能力                                                                   | 引用 `#sess_xxx` / 「接着那个会话干」真的能读；压缩后的原文回读也有了现成工具 |
+
+### 15.4 `TaskOutput` 的「DEPRECATED」是自相矛盾的失实描述
+
+`TaskOutput` 描述的第一行是 `DEPRECATED: …`，但：
+
+- 它**仍在工具面里**（`CODING_ONLY_TOOLS` 第 12 个）；
+- 实测全局被调用 **3 次**；
+- 同一段描述的下半部分又在讲怎么用它（`task_id`、`block=true`）。
+
+即：一个仍然注册、仍在被调的工具，描述开头就在叫模型别用它。这与上一轮
+`024c6f3`/`3fc8a2c` 的判据同类（描述与实际不一致），且比「长」更有害——它直接劝退一个可用工具。
+
+**修法**：删掉 `DEPRECATED:` 这个前缀（它的本意是「后台任务的输出路径在工具结果里已给出」，
+是提示、不是弃用），保留路径说明与用法。
+
+### 15.5 本轮审计过的其他可疑描述（结论：**不改**）
+
+逐条核对了可证伪的说法，均**属实**（避免“为了精简而精简”）：
+
+| 描述                                                        | 核对                                                                                                                                  |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Read「up to 2000 lines by default」                         | `READ_DEFAULT_MAX_LINES = 2_000` ✓                                                                                                    |
+| Bash「timeout default 120000, max 600000」                  | `DEFAULT_BASH_TIMEOUT_MS=120_000` / `MAX=600_000` ✓（有 env 覆盖，但描述写的是默认值）                                                |
+| WebSearch「current month is September 2026」                | 运行时 `${currentMonth}` 插值，非硬编码 ✓                                                                                             |
+| AskUserQuestion「always able to select "Other"」            | Desktop 有 `customAnswer` 自由文本输入 ✓                                                                                              |
+| Edit「Prefer EditAnchored for files you have already read」 | 与 identity 段同一句，但保留：未读硬拒与 stale 重试由 `FILE_NOT_READ`/`EDIT_STALE_MESSAGE` 代码强制，工具描述是模型唯一能读到的地方 ✓ |
+| Agent 提到 `CreateWorkflow`                                 | 已在 `024c6f3` 修为按实际注册结果，本轮 dump 确认默认面下**不再出现** ✓                                                               |
+
+### 15.6 验收场景
+
+| 场景                                      | 期望                                               |
+| ----------------------------------------- | -------------------------------------------------- |
+| 默认会话引用 `#sess_xxx`                  | 提醒里的 `ReadSessionContext` 与工具面一致（均在） |
+| 会话显式收窄 `toolAllowlist` 且不含该工具 | 提醒不得点名它（退回“从会话存储回读”）             |
+| 压缩后摘要的回读指引                      | 同上，两种形态都不指不存在的工具                   |
+| `TaskOutput` 描述                         | 不再含 `DEPRECATED` 前缀，但保留输出路径说明与用法 |
+
+**测试**：`core/test/session-reference-tool-consistency.test.ts`（新增）+ 既有 `tool-surface` /
+`compact-recovery-pointer` / `tool-description-registration-parity` 保持通过。
