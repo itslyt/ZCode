@@ -92,20 +92,17 @@ export function shouldRenderPreviewPaneHeavyContent({
 }
 
 /**
- * 预览铺满是否生效。
+ * 侧栏铺满是否生效。
  *
- * 面板本地只存「用户是否按下了铺满」，生效与否还要看前提是否仍成立：面板收起、
- * 或者 active tab 换成了别的类型时都不能继续铺满。这里集中判定，避免组件里
- * 再散落一份等价条件。
+ * 面板本地只存「用户是否按下了铺满」；面板收起时不能继续铺满。
+ * 这里集中判定，避免组件里再散落一份等价条件。
  */
-export function shouldApplyPreviewPaneMaximized({
-  isMaximized,
+export function shouldApplySidePaneExpanded({
+  isExpanded,
   isSidePaneVisible,
-  isCodeViewerTabActive,
 }: {
-  isMaximized: boolean;
+  isExpanded: boolean;
   isSidePaneVisible: boolean;
-  isCodeViewerTabActive: boolean;
 }): boolean {
-  return isMaximized && isSidePaneVisible && isCodeViewerTabActive;
+  return isExpanded && isSidePaneVisible;
 }

@@ -19,8 +19,6 @@ import {
   ExternalLinkIcon,
   FileCode2Icon,
   CopyIcon,
-  Maximize2Icon,
-  Minimize2Icon,
 } from "lucide-react";
 import { nanoid } from "nanoid";
 import { Button } from "@/components/ui/button.js";
@@ -486,8 +484,6 @@ export function PreviewPane({
   onOpenCodeViewer,
   renderHeavyContent = true,
   markdownSelectionTarget,
-  isMaximized = false,
-  onToggleMaximized,
 }: {
   source: CodeViewerSource | null;
   onClose: () => void;
@@ -496,9 +492,6 @@ export function PreviewPane({
   onOpenCodeViewer?: (source: CodeViewerSource) => void;
   renderHeavyContent?: boolean;
   markdownSelectionTarget?: MarkdownSelectionTarget;
-  /** 铺满内容区；由 side pane 面板派生，PreviewPane 只负责呈现。 */
-  isMaximized?: boolean;
-  onToggleMaximized?: () => void;
 }) {
   const platform = usePlatform();
   const { intl } = useZCodeIntl();
@@ -1479,26 +1472,6 @@ export function PreviewPane({
     };
   }, [renderHeavyContent, source]);
 
-  useEffect(() => {
-    if (!isMaximized || !onToggleMaximized) {
-      return;
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      // 下拉菜单 / 对话框的 Esc 已经处理过时不能抢，否则会同时关掉两层。
-      if (event.key !== "Escape" || event.defaultPrevented) {
-        return;
-      }
-
-      onToggleMaximized();
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isMaximized, onToggleMaximized]);
-
   if (!source) {
     return null;
   }
@@ -1551,14 +1524,7 @@ export function PreviewPane({
   return (
     <aside
       data-testid={TID_PREVIEW_PANE}
-      data-preview-pane-maximized={isMaximized ? "true" : undefined}
-      className={cn(
-        "flex h-full flex-col overflow-hidden bg-background",
-        // 铺满时不逃出面板（面板链路上有 !overflow-hidden，绝对定位会被裁掉），
-        // 改用 fixed 覆盖内容区；左边界锚定侧栏宽度，文件树保持可见可点。
-        isMaximized &&
-          "fixed inset-y-0 right-0 left-[var(--workspace-sidebar-panel-width,0px)] z-30 border-l border-border",
-      )}
+      className={cn("flex h-full flex-col overflow-hidden bg-background")}
     >
       <div
         className={cn(
@@ -1728,29 +1694,6 @@ export function PreviewPane({
                 ) : null}
               </DropdownMenuContent>
             </DropdownMenu>
-          ) : null}
-          {onToggleMaximized ? (
-            <Button
-              type="button"
-              size="icon-md"
-              variant="ghost"
-              className="shrink-0 text-foreground-subtle hover:text-foreground"
-              data-preview-pane-maximize-trigger=""
-              onClick={onToggleMaximized}
-              title={intl.formatMessage({
-                id: isMaximized ? "sidePane.restoreSize" : "sidePane.maximize",
-              })}
-              aria-label={intl.formatMessage({
-                id: isMaximized ? "sidePane.restoreSize" : "sidePane.maximize",
-              })}
-              aria-pressed={isMaximized}
-            >
-              {isMaximized ? (
-                <Minimize2Icon className="size-3.5" />
-              ) : (
-                <Maximize2Icon className="size-3.5" />
-              )}
-            </Button>
           ) : null}
           {/* 第一期 PPTX 明确为只读预览，不展示任何编辑入口。 */}
           <Button

@@ -23,6 +23,7 @@ import {
 } from "@dnd-kit/core";
 import { horizontalListSortingStrategy, SortableContext } from "@dnd-kit/sortable";
 import type { BrowserViewScreenshotSurfacePreparePayload, GitChangeSourceId } from "@zcode/shared";
+import { TID_SIDE_PANE_EXPAND } from "@zcode/shared";
 import { PreviewPane } from "@/PreviewPane.js";
 import { SidePaneTerminalPane } from "@/SidePaneTerminalPane.js";
 import { useIsOfficeMode } from "@/hooks/useInterfaceMode.js";
@@ -39,6 +40,7 @@ import { ModelTrajectoryPane } from "@/ModelTrajectoryPane.js";
 import { DeveloperToolsPane } from "@/DeveloperToolsPane.js";
 import { cn } from "@/components/lib/utils.js";
 import { Button } from "@/components/ui/button.js";
+import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -70,7 +72,7 @@ import {
 import {
   resolveAnimatedSidePanePanelLayout,
   resolveOpenTabLauncherItemIds,
-  shouldApplyPreviewPaneMaximized,
+  shouldApplySidePaneExpanded,
   shouldOfferSelectionSideConversation,
   shouldRenderPreviewPaneHeavyContent,
   type OpenTabLauncherItemId,
@@ -102,6 +104,8 @@ import {
   BugIcon,
   FileDiffIcon,
   GlobeIcon,
+  Maximize2Icon,
+  Minimize2Icon,
   MessageSquareTextIcon,
   PlusIcon,
   SquareTerminalIcon,
@@ -433,31 +437,26 @@ export function AnimatedSidePanePanel({
     [sidePaneOwnerId, tabs, workspaceKey],
   );
   const activeTabId = sidePaneState?.activeTabId ?? "";
-  // 预览铺满：面板本地持有「用户是否按下了铺满」，生效与否由纯函数按面板可见性与
-  // active tab 类型派生。不落 store、不持久化，刷新后回到普通宽度。
-  const [isPreviewPaneMaximized, setIsPreviewPaneMaximized] = useState(false);
-  const handleTogglePreviewPaneMaximized = useCallback(() => {
-    setIsPreviewPaneMaximized((current) => !current);
-  }, []);
   const visibleActiveTabId = visibleTabs.some((tab) => tab.id === activeTabId)
     ? activeTabId
     : (visibleTabs.at(-1)?.id ?? "");
-  const isCodeViewerTabActive = visibleTabs.some(
-    (tab) => tab.id === visibleActiveTabId && tab.type === "code-viewer",
-  );
-  const isPreviewPaneMaximizedApplied = shouldApplyPreviewPaneMaximized({
-    isMaximized: isPreviewPaneMaximized,
+  // 侧栏铺满：面板本地持有「用户是否按下了铺满」，生效与否由纯函数按面板可见性
+  // 派生。对开关不区分 tab 类型，任何 tab 都能铺满（与切换面板同一行的通用按钮）。
+  // 不落 store、不持久化，刷新后回到普通宽度。
+  const [isSidePaneExpanded, setIsSidePaneExpanded] = useState(false);
+  const handleToggleSidePaneExpanded = useCallback(() => {
+    setIsSidePaneExpanded((current) => !current);
+  }, []);
+  const isSidePaneExpandedApplied = shouldApplySidePaneExpanded({
+    isExpanded: isSidePaneExpanded,
     isSidePaneVisible: isVisible,
-    isCodeViewerTabActive,
   });
-  // 前提不再成立（切走预览 tab / 收起面板 / 关掉预览 tab）时把本地状态一并归位，
-  // 否则切回来会莫名又铺满。
+  // 面板收起时把本地状态一并归位，否则下次打开会莫名又是铺满态。
   useEffect(() => {
-    const canStayMaximized = isCodeViewerTabActive && isVisible;
-    if (!canStayMaximized) {
-      setIsPreviewPaneMaximized(false);
+    if (!isVisible) {
+      setIsSidePaneExpanded(false);
     }
-  }, [isCodeViewerTabActive, isVisible]);
+  }, [isVisible]);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
   const tabsScrollViewportRef = useRef<HTMLDivElement | null>(null);
   const tabsScrollContentRef = useRef<HTMLDivElement | null>(null);
@@ -834,6 +833,33 @@ export function AnimatedSidePanePanel({
   const closeSidePaneButton =
     isVisible && onCloseSidePane ? (
       <div className="flex shrink-0 items-center gap-0.5 [app-region:no-drag]">
+        {/* 铺满与「切换面板」同排共用：对任何 tab 都生效，不只是文件预览。 */}
+        <ControlHintTooltip
+          title={intl.formatMessage({
+            id: isSidePaneExpandedApplied ? "sidePane.restoreSize" : "sidePane.maximize",
+          })}
+          side="bottom"
+          align="end"
+        >
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-md"
+            data-testid={TID_SIDE_PANE_EXPAND}
+            className="text-foreground hover:bg-hover hover:text-foreground [app-region:no-drag]"
+            aria-label={intl.formatMessage({
+              id: isSidePaneExpandedApplied ? "sidePane.restoreSize" : "sidePane.maximize",
+            })}
+            aria-pressed={isSidePaneExpandedApplied}
+            onClick={handleToggleSidePaneExpanded}
+          >
+            {isSidePaneExpandedApplied ? (
+              <Minimize2Icon className="size-4" />
+            ) : (
+              <Maximize2Icon className="size-4" />
+            )}
+          </Button>
+        </ControlHintTooltip>
         <WorkspaceSidePaneToggleButton
           isSidePaneOpen
           onToggleSidePane={onCloseSidePane}
@@ -947,6 +973,13 @@ export function AnimatedSidePanePanel({
       className={cn(
         // 独立外框放在内容层：关闭仍保留 Browser Guest 和 tab 实例，不改变面板持久化边界。
         "h-full overflow-hidden bg-background",
+        // 铺满：整帧改 fixed 覆盖内容区，左边界锚定侧栏宽度（文件树仍可见可点），
+        // 顶部留出 4px 桌面拖拽条（hasDesktopPanelInset 时 #content 有 p-1 内边），
+        // 标签栏因此保持原位、按钮也留在标签栏里可点。
+        isSidePaneExpandedApplied &&
+          (isDesktop
+            ? "fixed inset-y-1 right-1 left-[var(--workspace-sidebar-panel-width,0px)] z-20"
+            : "fixed inset-y-0 right-0 left-[var(--workspace-sidebar-panel-width,0px)] z-20"),
         frameClassName,
       )}
       style={lockedContentStyle}
@@ -1217,8 +1250,6 @@ export function AnimatedSidePanePanel({
                         ) : tab.type === "code-viewer" ? (
                           <PreviewPane
                             markdownSelectionTarget={{ sessionId: activeTaskId, workspaceKey }}
-                            isMaximized={isPreviewPaneMaximizedApplied}
-                            onToggleMaximized={handleTogglePreviewPaneMaximized}
                             source={tab.source}
                             onClose={onCloseCodeViewer}
                             workspacePath={workspaceAbsPath}
