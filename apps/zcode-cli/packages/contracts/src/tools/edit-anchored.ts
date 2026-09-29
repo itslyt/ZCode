@@ -76,6 +76,11 @@ export interface EditAnchoredOutput {
   userModified: boolean;
   /** 受影响区域编辑后的新锚点，模型可直接继续用，无需重新读取 */
   updatedAnchors?: string;
+  /**
+   * 自愈（行号漂移但哈希唯一）发生时的人读说明。
+   * 缺失或空串表示没有发生位移。见 specs/edit-anchored-verification.md §7.10。
+   */
+  relocationNotice?: string;
   perf?: z.infer<typeof ToolExecutionTelemetrySchema>;
 }
 
@@ -86,6 +91,7 @@ export const EditAnchoredOutputSchema = z.object({
   structuredPatch: z.array(EditDiffHunkSchema),
   userModified: z.boolean(),
   updatedAnchors: z.string().optional(),
+  relocationNotice: z.string().optional(),
   perf: ToolExecutionTelemetrySchema.optional(),
 });
 

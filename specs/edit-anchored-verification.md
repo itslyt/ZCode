@@ -1647,3 +1647,109 @@ Read 调用形态：整文件读 386，范围读(offset/limit) 2258   ← 85% �
    只容忍 `>>>`——`*`/`+`/`-` 是 Markdown 列表语义，剥了会误伤正文。
 7. `stale`/`unserved` 的文案必须不同：前者说「展示了但内容变了，拿新锚点重发即可」，
    后者说「从未展示过，必须 Read，继续猜会同样失败」。
+
+## 7.10 第八轮：自愈必须说出来 + 点明「行号与哈希来自不同版本」
+
+### 7.10.1 起因：一次真实会话的误判（`sess_8a4f7e90`）
+
+该会话跑在 `b068039`（含 §7.9 全部改进）之后，两次 `ambiguous` 失败，
+两次都靠回传区一次纠正成功——**reject-and-serve 工作正常**。但模型的自述
+在两处关键点上错了，且错的会误导后续优化方向：
+
+**误判一**：「4 位哈希空间小，短小雷同的代码行天然容易重复」。
+
+原始数据（该会话目标文件的**当前**内容）：
+
+```
+哈希 913P: 命中 6 处，其中内容不同的只有 1 种 → 全部是 "            continue"
+哈希 91Y7: 命中 5 处，其中内容不同的只有 1 种 → 全部是 "                continue"
+```
+
+**同一个字符串当然算出同一个哈希——这是哈希正确工作，不是碰撞。**
+改成 3 位、6 位、16 位，这 6 处 `continue` 的哈希仍然全部相同。
+按这个诊断去调位宽会完全无效，且 §7.8.5 已论证 3 位会把「只改看过的行」
+的击穿面扩大 32 倍。
+
+**误判二**：「工具报错信息显示它在解析时退化成只按哈希去匹配」。
+
+**代码不是这样**。判定顺序（`anchor-resolve.ts:106-126`）是：
+
+```
+1. servedHashes.has(hash)？     → 否则 unserved
+2. 行号位置上的哈希 == hash？    → 命中则直接用（shifted: false）   ← 行号优先
+3. 哈希在文件内唯一命中？        → 自愈移动
+4. 否则                        → ambiguous
+```
+
+实测该会话第一次的提交：`1177:913P` → `ambiguous`（6 处）；
+`1177:7ATK`（该行真正的哈希）→ `resolved`。**只要哈希给对，行号就生效。**
+退化到第 3 步，正因为**行号处对不上**。
+
+**真相**：模型把「上一版的哈希」配到了「这一版的行号」上。
+第二次失败尤其清楚：它提交 `1902:91Y7`，而回传区告知 `1899:91Y7`、`1902:63RG`
+——`91Y7` 是 1899 行的哈希，它却配了 1902 的行号；`remove_from=1899:GWB6`
+里的 `GWB6` 是早已失效的旧哈希。而它两次失败之间自己做了 3 次成功编辑，
+行号已整体位移。
+
+**结论：这不是哈希问题，是「锚点两半来自不同版本」的问题。**
+
+### 7.10.2 决定一：自愈必须说出来（点 2）
+
+`shifted` 此前**只被计算、从未被呈现**（`ResolvedAnchorEdit.shifted`）。
+自愈是静默的——模型以为改的是第 N 行，实际落在别处，它不知道。
+
+现在成功消息里加 `relocationNotice`（输出契约新增可选字段）：
+
+```
+Note: your line number did not match the file's current state, so the hash alone located the edit.
+- you named line 2, but the unique match for that hash is line 4
+Line numbers shift when you edit; copy anchors from your latest Read, or from the region returned by the previous edit.
+```
+
+**放在新锚点之前**：这是「你刚才的心智模型有误」的信号，比新锚点更该先看到。
+
+**保留自愈**（不做成拒绝）：自愈的方向通常正确（模型要改的就是那个内容），
+且 §7.10.1 的分析表明它没有引入新的静默错误——模型给什么哈希就会改到哪儿，
+自愈只是让「行号写错」不至于变成失败。
+
+### 7.10.3 决定二：`ambiguous` 点明行号错配（点 A）
+
+原来只说「matches 6 lines, pick the one you meant」，**没说「你给的行号上现在是别的哈希」**。
+这正是模型误判成「哈希空间小」的原因——它无从知道行号过期了。
+
+新增 `formatLineNumberMismatchHint`：在该行号**确实存在**、且哈希对不上时补一句：
+
+```
+Note: line 5 currently carries a different hash (`J91B`), not `91X2` — your line number and hash are from different versions of the file.
+```
+
+行号越界或哈希本就正确时不猜、不输出（避免在信息不足时给错方向）。
+
+### 7.10.4 决定三：`stale` 点明「自行拼接」这一成因（点 B）
+
+`stale` 文案补一句，直指最常见的成因：
+
+```
+If you assembled this pair yourself — a line number from one Read and a hash from
+another, or a line number from before your own edit — the two halves come from
+different versions. Copy the whole `N:HASH` pair from a single Read result.
+```
+
+### 7.10.5 决定四：描述加「不得拼接锚点」（点 1）
+
+`EditAnchored` 描述新增两条事前约束：
+
+- **不得凭记忆拼接锚点**：行号来自一次 Read、哈希来自另一次，或行号来自编辑前、
+  哈希来自编辑后——这种组合会被拒，尽管两半看起来都对。
+- **重复行共用一个哈希是正常的**（`continue`、`}`、空行）——那不是碰撞；
+  对这种行，**行号才是选行的依据**，所以两半必须来自同一次 Read。
+
+### 7.10.6 验收
+
+1. 哈希相同且出现多处的行，**行号+哈希都对时必须 resolved**（不报错）。
+2. 自愈发生时，成功消息含位移说明，且写明「你说的第 N 行 / 实际第 M 行」。
+3. 自愈不发生时不输出该说明（不留噪音）。
+4. `ambiguous` 且行号存在但哈希对不上时，错误消息点明「该行现在是别的哈希」。
+5. `ambiguous` 且行号越界时不输出该提示（信息不足不猜）。
+6. `stale` 文案点明「自行拼接两半」这一成因。
+7. `EditAnchored` 描述含「不得拼接锚点」与「重复行共用一个哈希是正常的」。

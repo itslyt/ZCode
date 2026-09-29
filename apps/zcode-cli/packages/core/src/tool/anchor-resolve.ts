@@ -55,6 +55,8 @@ export interface ResolvedAnchorEdit {
   replacementText: string;
   /** 行号发生了位移（自愈合命中） */
   shifted: boolean;
+  /** 模型提交的显式行号（裸哈希时为 undefined）。自愈时用它说明「你以为在第 N 行」。 */
+  requestedLine?: number;
 }
 
 export type AnchorResolveResult =
@@ -203,6 +205,8 @@ export function resolveAnchorEdits(
       end: endResolution.index,
       replacementText: request.replacementText,
       shifted: startResolution.shifted || endResolution.shifted,
+      // 模型声称的行号（显式形式才有）。自愈发生时用它把「你以为在第 N 行」说清楚。
+      requestedLine: from.kind === "explicit" ? from.line : undefined,
     });
   }
 
@@ -408,6 +412,31 @@ export function buildUpdatedAnchors(
   };
 }
 
+/**
+ * 当模型给的行号上其实不是它给的哈希时，把这件事**明说出来**。
+ *
+ * 依据：sess_8a4f7e90 里模型把两次失败归因成「4 位哈希空间小、短行天然碰撞」，
+ * 而真实原因是「行号来自编辑前、哈希来自编辑后」。不点明的话它会朝错方向修
+ * （去调哈希位宽，而那是无效且有害的）。见 §7.10。
+ *
+ * 只在该行号确实存在于本次内容里、且哈希对不上时给出；否则不猜。
+ */
+function formatLineNumberMismatchHint(
+  content: string,
+  failure: AnchorResolveFailure,
+): string[] {
+  const token = parseAnchorToken(failure.anchor);
+  if (token.kind !== "explicit") return [];
+  const lines = splitLines(content);
+  const index = token.line - 1;
+  if (index < 0 || index >= lines.length) return [];
+  const actual = hashLineContent(lines[index]!);
+  if (actual === token.hash) return [];
+  return [
+    `Note: line ${token.line} currently carries a different hash (\`${actual}\`), not \`${token.hash}\` — your line number and hash are from different versions of the file.`,
+  ];
+}
+
 export function createAnchorFailureMessage(input: {
   content: string;
   failure: AnchorResolveFailure;
@@ -455,6 +484,7 @@ export function createAnchorFailureMessage(input: {
         text: [
           `${position} anchor ${failure.anchor} matches ${failure.matchCount} lines in the current file,`,
           "so it cannot be resolved to one place. Pick the line you meant from the anchors below and resend.",
+          ...formatLineNumberMismatchHint(content, failure),
           "No edits were applied.",
           region.text,
         ].join("\n"),
@@ -475,6 +505,8 @@ export function createAnchorFailureMessage(input: {
       return {
         text: [
           `${position} anchor ${failure.anchor} no longer exists in the file — the line was shown to you, but its content has since changed (an edit or an external change).`,
+          // 点明最常见的成因：行号与哈希来自不同版本。见 §7.10（模型曾把它误判成「哈希空间小」）。
+          "If you assembled this pair yourself — a line number from one Read and a hash from another, or a line number from before your own edit — the two halves come from different versions. Copy the whole `N:HASH` pair from a single Read result.",
           "No edits were applied. Resend with an updated anchor from the region below — no need to re-read the whole file.",
           region.text,
         ].join("\n"),

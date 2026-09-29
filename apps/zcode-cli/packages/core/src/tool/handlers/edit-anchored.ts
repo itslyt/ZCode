@@ -34,6 +34,7 @@ import {
   resolveAnchorEdits,
   type AnchorEditRequest,
   type AnchorFailureReason,
+  type ResolvedAnchorEdit,
 } from "../anchor-resolve.js";
 import { collectServedAnchors, mergeServedAnchors } from "../anchor-served.js";
 import {
@@ -79,6 +80,8 @@ const EDIT_ANCHORED_PROVIDER_DESCRIPTION = [
   // 未看见的省略区、行号是原始行号、只改展示过的行。都是事前指引。
   "- Only lines you have already read with Read can be edited — Read is the only source of anchors. Content seen any other way (`cat`, `sed`, a Bash command) has no anchors, so an anchor composed from it will be rejected as never shown.",
   "- Line numbers are the original ones from your latest Read, never shifted by your own edits. A Read that shows lines 40-60 of a 900-line file means lines outside that window are UNSEEN: never edit there, and never write an anchor for a line the Read did not print. Read the range first.",
+  "- Never splice an anchor together from memory: a line number from one Read, a hash from another, or a line number from before an edit plus a hash from after it. Such a pair is rejected even though each half looks right. Copy the whole `N:HASH` pair verbatim from a single Read, or from the region an edit just returned.",
+  "- Repeated lines (`continue`, `}`, blank) share one hash — that is the hash working, not a collision. For those, the line number is what picks the line, so the pair must come from the same Read. If it is ambiguous, the error lists the candidates.",
   "- An elision marker (e.g. `... lines 61-890 omitted ...`) is NOT content. Never anchor on, inside, or across it.",
   "- If an anchor is rejected: for `no longer exists` (the line was shown but has since changed) resend with a fresh anchor from the region below; for `was never shown to you` the hash was never printed for this file, so Read the range instead of guessing a new one.",
 ].join("\n");
@@ -90,17 +93,43 @@ const NOTEBOOK_FILE_MESSAGE =
 // Model-facing result
 // -----------------------------------------------
 
+/**
+ * 自愈（行号漂移但哈希唯一）发生时，把「你以为改的是第 N 行」说清楚。
+ *
+ * 依据：sess_8a4f7e90 里两次失败都是「把上一版的哈希配到这一版的行号」——
+ * 它自己把原因误判成「哈希空间小、容易碰撞」。说出位移能直接打断这个误判。
+ * 见 specs/edit-anchored-verification.md §7.10。
+ */
+function formatRelocationNotice(edits: readonly ResolvedAnchorEdit[]): string {
+  const shifted = edits.filter((edit) => edit.shifted && edit.requestedLine !== undefined);
+  if (shifted.length === 0) return "";
+  const parts = shifted.map((edit) => {
+    const actual = edit.start + 1;
+    return edit.requestedLine === actual
+      ? `the line you named (${edit.requestedLine}) carried a stale hash; it resolved to the same line`
+      : `you named line ${edit.requestedLine}, but the unique match for that hash is line ${actual}`;
+  });
+  return [
+    "Note: your line number did not match the file's current state, so the hash alone located the edit.",
+    ...parts.map((part) => `- ${part}`),
+    "Line numbers shift when you edit; copy anchors from your latest Read, or from the region returned by the previous edit.",
+  ].join("\n");
+}
+
 function formatEditAnchoredModelContent(output: unknown): string {
   if (!isRecord(output)) return "The file has been updated successfully.";
 
   const filePath = typeof output.filePath === "string" ? output.filePath : "the file";
   const editCount = typeof output.editCount === "number" ? output.editCount : 0;
   const updatedAnchors = typeof output.updatedAnchors === "string" ? output.updatedAnchors : "";
+  const relocationNotice = typeof output.relocationNotice === "string" ? output.relocationNotice : "";
 
   const head = `The file ${filePath} has been updated successfully. ${editCount} edit(s) were applied atomically.`;
-  if (updatedAnchors === "") return head;
-
-  return `${head}\nCurrent anchors for the changed region:\n${updatedAnchors}`;
+  const lines = [head];
+  // 位移提示放在锚点之前：这是「你刚才的心智模型有误」的信号，比新锚点更该先看到。
+  if (relocationNotice !== "") lines.push(relocationNotice);
+  if (updatedAnchors !== "") lines.push(`Current anchors for the changed region:\n${updatedAnchors}`);
+  return lines.join("\n");
 }
 
 // -----------------------------------------------
@@ -218,6 +247,9 @@ const editAnchoredHandler: ToolHandler = async (input, context) => {
     }),
     userModified: false,
     updatedAnchors: updatedAnchors.text,
+    // 自愈发生时把位移说出来：模型以为改的是第 N 行，实际落在别处。
+    // 不说的话它只能自己比对回传区发现（多数发现不了），下一轮就带着错行号继续。
+    relocationNotice: formatRelocationNotice(resolved.edits),
   } satisfies EditAnchoredOutput;
 };
 
