@@ -13,15 +13,15 @@ harness 里直接调用 `EditAnchored` 工具（不是只跑单测），再对�
 
 **验收结论：通过。** 全部缺陷已闭环，无遗留。
 
-| 编号 | 内容 | 状态 |
-| --- | --- | --- |
-| §1–§5 | 初验 5 项 | 已修复，复验通过 |
-| §6 | 修复引入的读门禁绕过 | 已修复，复验通过 |
-| §7.2 | 空内容渲染假行 / 空行哈希 | 已修复，复验通过 |
-| §7.3 | 不可达分支 | 确认不可达，保留 + 注释 |
-| §7.1 | 拒绝路径的 served 不跨 resume | 已修复（`f624f05`），端到端复验通过 |
-| §7.5 | 重复用例 + 临时脚本 | 已清 |
-| §7.6 | 「天然被跳过」论断错误 | 已纠正（措辞 + 测试钉住） |
+| 编号  | 内容                          | 状态                                |
+| ----- | ----------------------------- | ----------------------------------- |
+| §1–§5 | 初验 5 项                     | 已修复，复验通过                    |
+| §6    | 修复引入的读门禁绕过          | 已修复，复验通过                    |
+| §7.2  | 空内容渲染假行 / 空行哈希     | 已修复，复验通过                    |
+| §7.3  | 不可达分支                    | 确认不可达，保留 + 注释             |
+| §7.1  | 拒绝路径的 served 不跨 resume | 已修复（`f624f05`），端到端复验通过 |
+| §7.5  | 重复用例 + 临时脚本           | 已清                                |
+| §7.6  | 「天然被跳过」论断错误        | 已纠正（措辞 + 测试钉住）           |
 
 修复轮次：`f9730f8`（§1–§5）→ `f66798b`（§6）→ `a068243`（§7.2/§7.3）→ `e751ad2`（§7.5）
 → `f624f05`（§7.1/§7.6）。每轮都在目标 HEAD 上重新复验，不是沿用上一轮结论。
@@ -39,16 +39,16 @@ harness 里直接调用 `EditAnchored` 工具（不是只跑单测），再对�
 复验方式与初验一致：真机调用 `EditAnchored` + handler 层假 port 复现，不是只跑单测。
 每一项都在目标 HEAD 上重新跑过（不是沿用上一轮的结论）。
 
-| 缺陷 | 状态 | 复验证据（HEAD 实测） |
-| --- | --- | --- |
-| §1 served 灌全文 | **已修复** | 读 1–5 行 → 改第 3 行 → 改第 100 行 → 拒绝 `references anchor 100:2CAP, which was never shown to you` |
-| §2 reject-and-serve 死循环 | **已修复** | stale 拒绝后照抄错误信息里的 `2:4XNY` 重发 → **成功**，文件落回 `const change = 2;` |
-| §3a `end` 被丢弃 | **已修复** | 1 行换 5 行 → 回传含 `const r5 = 5;` |
-| §3b 索引空间错位 | **已修复** | `changedRanges` 回报 `[{0,2},{6,6}]`（新内容空间），回传含 `A5x` |
-| §3c 区块被 `continue` 丢弃 | **已修复** | 两条编辑 → 回传含第 7 行 `const e = 500;` |
-| §4 resume 不恢复 | **已修复** | hydrator `restoredCount: 2`（原为 1），`b.ts` 恢复，`sourceTool: EditAnchored` |
-| §5 UI 身份 | **已修复** | identity `family: "file-write"`，`isFileDiffToolCall: true`，summaries 1 条带 patch |
-| §6 读门禁绕过 | **已修复** | 见下 |
+| 缺陷                       | 状态       | 复验证据（HEAD 实测）                                                                                 |
+| -------------------------- | ---------- | ----------------------------------------------------------------------------------------------------- |
+| §1 served 灌全文           | **已修复** | 读 1–5 行 → 改第 3 行 → 改第 100 行 → 拒绝 `references anchor 100:2CAP, which was never shown to you` |
+| §2 reject-and-serve 死循环 | **已修复** | stale 拒绝后照抄错误信息里的 `2:4XNY` 重发 → **成功**，文件落回 `const change = 2;`                   |
+| §3a `end` 被丢弃           | **已修复** | 1 行换 5 行 → 回传含 `const r5 = 5;`                                                                  |
+| §3b 索引空间错位           | **已修复** | `changedRanges` 回报 `[{0,2},{6,6}]`（新内容空间），回传含 `A5x`                                      |
+| §3c 区块被 `continue` 丢弃 | **已修复** | 两条编辑 → 回传含第 7 行 `const e = 500;`                                                             |
+| §4 resume 不恢复           | **已修复** | hydrator `restoredCount: 2`（原为 1），`b.ts` 恢复，`sourceTool: EditAnchored`                        |
+| §5 UI 身份                 | **已修复** | identity `family: "file-write"`，`isFileDiffToolCall: true`，summaries 1 条带 patch                   |
+| §6 读门禁绕过              | **已修复** | 见下                                                                                                  |
 
 ### §6 复验（`f66798b`）
 
@@ -104,14 +104,14 @@ D) 再用 Write 覆盖全文                          -> THREW: write_file_not_r
 
 下表是**初验**的基线，保留以便对照。后续各轮的测试数变化在 §0.5 与各节末尾。
 
-| 项 | 值 |
-| --- | --- |
-| 验证提交 | `b8d4d12`（当时的 HEAD） |
-| 工作区 | 干净，仅 `.zcodeignore` 未跟踪（与本次无关，未改动） |
-| 测试临时文件 | 全部落在 `.tmp/hashline-check/`，验证后已删除 |
-| 单测 | `node --import tsx --test test/*.test.ts` → **31/31 通过** |
-| 类型检查 | `pnpm typecheck` → **通过** |
-| Lint | `pnpm lint` → 0 error / 74 warning（全为既有） |
+| 项           | 值                                                         |
+| ------------ | ---------------------------------------------------------- |
+| 验证提交     | `b8d4d12`（当时的 HEAD）                                   |
+| 工作区       | 干净，仅 `.zcodeignore` 未跟踪（与本次无关，未改动）       |
+| 测试临时文件 | 全部落在 `.tmp/hashline-check/`，验证后已删除              |
+| 单测         | `node --import tsx --test test/*.test.ts` → **31/31 通过** |
+| 类型检查     | `pnpm typecheck` → **通过**                                |
+| Lint         | `pnpm lint` → 0 error / 74 warning（全为既有）             |
 
 关于 lint 的一个补充：根 `.oxlintrc.json` 的 `ignorePatterns` 含 `apps/zcode-cli`，所以根
 `pnpm lint` **不覆盖**本次改动的代码。包内 `npx oxlint src --no-ignore` 有 30 个 `max-lines`
@@ -169,7 +169,7 @@ const entry = updateReadFileStateAfterAnchoredEdit({
   filePath,
   content: newContent,
   revision: writeResult.revision,
-  servedAnchors: computeLineHashes(newContent.split("\n")),   // ← 第 177 行
+  servedAnchors: computeLineHashes(newContent.split("\n")), // ← 第 177 行
 });
 ```
 
@@ -197,7 +197,7 @@ replace 的安全论据。
 
 ```ts
 function servedOf(content: string): Set<string> {
-  return new Set(computeLineHashes(splitLines(content)));   // 结构上不可能发现本缺陷
+  return new Set(computeLineHashes(splitLines(content))); // 结构上不可能发现本缺陷
 }
 ```
 
@@ -255,7 +255,11 @@ No edits were applied.
 // src/tool/handlers/edit-anchored.ts:136-140
 if (resolved.status === "failed") {
   return editAnchoredFailure(
-    createAnchorFailureMessage({ content, failure: resolved, total: requests.length }),
+    createAnchorFailureMessage({
+      content,
+      failure: resolved,
+      total: requests.length,
+    }),
   );
 }
 ```
@@ -294,7 +298,7 @@ case "stale":
 // src/tool/handlers/edit-anchored.ts:167-170
 const updatedAnchors = buildUpdatedAnchors(
   newContent,
-  resolved.edits.map((edit) => ({ start: edit.start, end: edit.start })),   // ← end = start
+  resolved.edits.map((edit) => ({ start: edit.start, end: edit.start })), // ← end = start
 );
 ```
 
@@ -326,10 +330,13 @@ Current anchors for the changed region:
 
 ```ts
 // 原始: A1..A5；edit1 把 A1 换成 3 行（净 +2），edit2 改原 A5
-const newContent = ["A1a","A1b","A1c","A2","A3","A4","A5x"].join("\n");
+const newContent = ["A1a", "A1b", "A1c", "A2", "A3", "A4", "A5x"].join("\n");
 
 // 原始索引 [4] 在新内容里是第 5 行 A3 —— 不是被编辑的 A5x
-buildUpdatedAnchors(newContent, [{ start: 0, end: 0 }, { start: 4, end: 4 }]);
+buildUpdatedAnchors(newContent, [
+  { start: 0, end: 0 },
+  { start: 4, end: 4 },
+]);
 // 实际编辑的行是 index 6 (A5x)，却报告了 index 4 附近
 ```
 
@@ -365,7 +372,10 @@ Current anchors for the changed region:
 
 ```ts
 // 索引空间正确、end 正确，仍丢第二个区块：
-buildUpdatedAnchors(newContent, [{ start: 0, end: 2 }, { start: 6, end: 6 }]);
+buildUpdatedAnchors(newContent, [
+  { start: 0, end: 2 },
+  { start: 6, end: 6 },
+]);
 // 只输出 lines 1-6，line 7 (A5x) 缺失
 ```
 
@@ -435,7 +445,7 @@ function recordReadFileStateMetadata(context, entry): void {
   const metadata = createReadFileStateMetadataFromEntry({
     completedAt: entry?.readAt ?? new Date(),
     entry,
-    toolName: "Edit",                                  // ← metadata 侧是 "Edit"
+    toolName: "Edit", // ← metadata 侧是 "Edit"
   });
   if (metadata) context.recordReadFileStateMetadata(metadata);
 }
@@ -463,11 +473,16 @@ resume / rewind 之后，模型对之前锚点编辑过的文件失去"已读"�
 
 ```ts
 // packages/ui
-resolveToolCallIdentity({ toolName: "EditAnchored", kind: "EditAnchored", title: "EditAnchored", input: {} });
+resolveToolCallIdentity({
+  toolName: "EditAnchored",
+  kind: "EditAnchored",
+  title: "EditAnchored",
+  input: {},
+});
 // => {"toolName":null,"family":"unknown","source":"unknown"}
 
-isFileDiffToolCall(src);                    // => false
-readRawToolCallFileSummaries(raw, src);     // => []      （output.display 里明明有 file_diff）
+isFileDiffToolCall(src); // => false
+readRawToolCallFileSummaries(raw, src); // => []      （output.display 里明明有 file_diff）
 ```
 
 对照 `Edit`：`{"toolName":"Edit","family":"file-write","source":"toolName"}`。
@@ -683,11 +698,11 @@ error 部件），还是接受"拒绝路径的 served 不跨会话"并在文档�
 
 随后 `f624f05` 单独立项完成，四处改动：
 
-| 处 | 改动 |
-| --- | --- |
-| `createErrorResult` | `options` 增可选 `readFileStateMetadata`（不动位置参数） |
-| `call-runner.ts:575` | catch 分支传入已在作用域内的 `readFileStateMetadata` |
-| `tool-part-metadata.ts` | 抽出 `readFileStateMetadataField`，completed 与 error 分支共用 |
+| 处                            | 改动                                                           |
+| ----------------------------- | -------------------------------------------------------------- |
+| `createErrorResult`           | `options` 增可选 `readFileStateMetadata`（不动位置参数）       |
+| `call-runner.ts:575`          | catch 分支传入已在作用域内的 `readFileStateMetadata`           |
+| `tool-part-metadata.ts`       | 抽出 `readFileStateMetadataField`，completed 与 error 分支共用 |
 | `read-file-state-hydrator.ts` | 判据换成 `isReadStateBearingToolPart`，接受 completed 与 error |
 
 端到端复验（复刻两段会话）：
@@ -754,7 +769,9 @@ formatAnchorRegion(""): {"text":"(file is empty)","servedHashes":[]}
 ```ts
 // edit-anchored.ts:285-308
 const existing = findLatestReadFileState(readFileState, input.filePath);
-if (existing) { /* ... */ return; }
+if (existing) {
+  /* ... */ return;
+}
 // 没有任何读状态时，served 需要有地方放。建一条保守条目……
 ```
 
@@ -786,9 +803,9 @@ if (existing) { /* ... */ return; }
 
 复验方在 `e751ad2` 上发现的两条，处理方已修，我逐条复验通过：
 
-| 项 | 状态 | 复验证据 |
-| --- | --- | --- |
-| `test/tmp/v7.ts` 未跟踪脚本 | **已清** | `ls test/tmp` → No such file；已移入 `~/.Trash/zcode-anchor-repro-20260923/` |
+| 项                                | 状态     | 复验证据                                                                                                                      |
+| --------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `test/tmp/v7.ts` 未跟踪脚本       | **已清** | `ls test/tmp` → No such file；已移入 `~/.Trash/zcode-anchor-repro-20260923/`                                                  |
 | `anchor-resolve.test.ts` 重复用例 | **已删** | `grep -c 'test("空内容上渲染区域返回空结果'` → 0（保留带 `§7.2` 前缀那条）；该文件 27 → 26，全套 49 → 48，`§7.2` 行为仍被覆盖 |
 
 重复用例的根因（处理方自述，我核对属实）：改写旧的「空文件上渲染区域不报错」时写成了与新用例
@@ -848,10 +865,10 @@ error 件 tool 名不认识         : restored=0 size=0
 
 **复验方补的三处小修（本轮由我直接改）**：
 
-| 项 | 修改 |
-| --- | --- |
-| `errors.ts:18` 与 `read-file-state-hydrator.ts:32` 的「照拄」 | 改为「照抄」（本轮新注释引入的错别字） |
-| spec 引用 `executor/errors.ts:18` 支撑「反对按 tool 名特判」 | 改为 `:27`（那条原则注释的实际位置），并说明它是类比 |
+| 项                                                                                        | 修改                                                         |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `errors.ts:18` 与 `read-file-state-hydrator.ts:32` 的「照拄」                             | 改为「照抄」（本轮新注释引入的错别字）                       |
+| spec 引用 `executor/errors.ts:18` 支撑「反对按 tool 名特判」                              | 改为 `:27`（那条原则注释的实际位置），并说明它是类比         |
 | hydrator 的 `FailedToolPart` JSDoc 仍写着「其它工具不在失败路径写读状态，所以走不到恢复」 | 改成与 spec 一致的「恢复判据是带没带合法读状态，不是工具名」 |
 
 第三条是同一处错误论断的另一份拷贝——处理方改了 commit message 和 spec，但代码注释里的那份
@@ -859,32 +876,31 @@ error 件 tool 名不认识         : restored=0 size=0
 
 ---
 
-
 ## 8. 已验证正常的部分（改的时候别碰坏）
 
 以下都是真机调用确认过的：
 
-| 场景 | 结果 |
-| --- | --- |
-| 快路径单行替换 | 正确 |
-| 自愈合：上方插入 3 行后旧行号失效，哈希唯一命中 | 正确，落点行号准确 |
-| 删除区间（`replacement_text: ""`） | 正确 |
-| 单行 → 多行替换的内容写入 | 正确（只是回传锚点不全，见 §3a） |
-| 批量编辑原子性 | 正确，两条都生效 |
-| 重叠区间拒绝 | 正确（`Edit 1 and edit 2 target overlapping line ranges.`） |
-| 歧义拒绝（3 行相同内容，`99:E8FE`） | 正确，`matches 3 lines` |
-| `unserved` 拒绝（首次编辑前） | 正确 |
-| `malformed_anchor` / `reversed_range` 拒绝 | 正确，提示可修正 |
-| `.ipynb` 拒绝 | 正确（`NOTEBOOK_FILE_MESSAGE`） |
-| `Edit` 粘贴带锚点前缀的内容 | 正确（`b8d4d12` 的修复有效，`line_number_prefix_stripped` 命中） |
+| 场景                                            | 结果                                                             |
+| ----------------------------------------------- | ---------------------------------------------------------------- |
+| 快路径单行替换                                  | 正确                                                             |
+| 自愈合：上方插入 3 行后旧行号失效，哈希唯一命中 | 正确，落点行号准确                                               |
+| 删除区间（`replacement_text: ""`）              | 正确                                                             |
+| 单行 → 多行替换的内容写入                       | 正确（只是回传锚点不全，见 §3a）                                 |
+| 批量编辑原子性                                  | 正确，两条都生效                                                 |
+| 重叠区间拒绝                                    | 正确（`Edit 1 and edit 2 target overlapping line ranges.`）      |
+| 歧义拒绝（3 行相同内容，`99:E8FE`）             | 正确，`matches 3 lines`                                          |
+| `unserved` 拒绝（首次编辑前）                   | 正确                                                             |
+| `malformed_anchor` / `reversed_range` 拒绝      | 正确，提示可修正                                                 |
+| `.ipynb` 拒绝                                   | 正确（`NOTEBOOK_FILE_MESSAGE`）                                  |
+| `Edit` 粘贴带锚点前缀的内容                     | 正确（`b8d4d12` 的修复有效，`line_number_prefix_stripped` 命中） |
 
 哈希质量也复核过。用唯一内容 + LCG 生成器测碰撞：
 
-| 行数 | 实测碰撞（30 次均值） | 均匀分布期望 |
-| --- | --- | --- |
-| 1 000 | 0.30 | 0.48 |
-| 5 000 | 11.53 | 11.92 |
-| 20 000 | 190.03 | 190.73 |
+| 行数   | 实测碰撞（30 次均值） | 均匀分布期望 |
+| ------ | --------------------- | ------------ |
+| 1 000  | 0.30                  | 0.48         |
+| 5 000  | 11.53                 | 11.92        |
+| 20 000 | 190.03                | 190.73       |
 
 FNV-1a 32 位分布正常，实测与理论一致。`specs/edit-tool-roadmap.md` §2 里"用行号定位、用哈希
 见证、4 字符而非 3 字符"的决策成立（3 字符 1000 行碰撞率约 88% 的估算可以复现）。
@@ -927,19 +943,19 @@ FNV-1a 32 位分布正常，实测与理论一致。`specs/edit-tool-roadmap.md`
 
 已处理项的原始优先级（留档）：
 
-| 编号 | 内容 | 处理 |
-| --- | --- | --- |
-| §1 | served 灌全文 | `f9730f8` 修复 |
-| §2 | reject-and-serve 锚点不进 served | `f9730f8` 修复 |
-| §3 | updatedAnchors 区间错误 | `f9730f8` 修复 |
-| §4 | resume 不恢复 | `f9730f8` 修复 |
-| §5 | UI 不认工具名 | `f9730f8` 修复 |
-| §6 | 修复引入的读门禁绕过 | `f66798b` 修复 |
-| §7.2 | 空内容渲染假行 | `a068243` 修复 |
-| §7.3 | 不可达分支 | `a068243` 确认保留 |
-| §7.5 | 重复用例 + 临时脚本 | `e751ad2` 清理 |
-| §7.1 | 拒绝路径的 served 不跨 resume | `f624f05` 修复 |
-| §7.6 | 「天然被跳过」论断错误 | `f624f05` 纠正 + 测试钉住 |
+| 编号 | 内容                             | 处理                      |
+| ---- | -------------------------------- | ------------------------- |
+| §1   | served 灌全文                    | `f9730f8` 修复            |
+| §2   | reject-and-serve 锚点不进 served | `f9730f8` 修复            |
+| §3   | updatedAnchors 区间错误          | `f9730f8` 修复            |
+| §4   | resume 不恢复                    | `f9730f8` 修复            |
+| §5   | UI 不认工具名                    | `f9730f8` 修复            |
+| §6   | 修复引入的读门禁绕过             | `f66798b` 修复            |
+| §7.2 | 空内容渲染假行                   | `a068243` 修复            |
+| §7.3 | 不可达分支                       | `a068243` 确认保留        |
+| §7.5 | 重复用例 + 临时脚本              | `e751ad2` 清理            |
+| §7.1 | 拒绝路径的 served 不跨 resume    | `f624f05` 修复            |
+| §7.6 | 「天然被跳过」论断错误           | `f624f05` 纠正 + 测试钉住 |
 
 > 下面这段是初验时的建议，已被 `f9730f8` 采纳（成功与拒绝共用 `writeAnchoredReadState`）。
 > 但正是这次共用把 §6 的门禁字段一起重写了——`f66798b` 又把两者拆开。留档以便对照这个来回。
@@ -963,13 +979,21 @@ import { buildUpdatedAnchors } from "./src/tool/anchor-resolve.ts";
 // 复刻真机 batch.ts：原始 5 行 a..e
 // edit1 把 index0 一行换成 3 行（净 +2）；edit2 改 index4（原 const e = 5;）
 const newContent = [
-  "const a = 1;","const a2 = 2;","const a3 = 3;",
-  "const b = 2;","const c = 3;","const d = 4;","const e = 500;",
+  "const a = 1;",
+  "const a2 = 2;",
+  "const a3 = 3;",
+  "const b = 2;",
+  "const c = 3;",
+  "const d = 4;",
+  "const e = 500;",
 ].join("\n");
 
-const out = buildUpdatedAnchors(newContent, [{ start: 0, end: 0 }, { start: 4, end: 4 }]);
+const out = buildUpdatedAnchors(newContent, [
+  { start: 0, end: 0 },
+  { start: 4, end: 4 },
+]);
 console.log(out);
-console.log("区块数:", out.split("\n...\n").length);            // 1（应为 2）
+console.log("区块数:", out.split("\n...\n").length); // 1（应为 2）
 console.log("含 const e = 500;?", out.includes("const e = 500;")); // false ← 内容真的丢了
 ```
 
@@ -991,9 +1015,12 @@ console.log("含 const e = 500;?", out.includes("const e = 500;")); // false ←
 更弱的一种表现（内容碰巧被前一个窗口覆盖，只是没有单独成块）：
 
 ```ts
-const content = ["L1","L2","L3","L4","L5","L6","L7","L8","L9","L10"].join("\n");
+const content = ["L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9", "L10"].join("\n");
 // edit1 窗口 = lines 1-5，把 edit2（index 4 → line 5）一起吞了 → 只回 1 个区块
-buildUpdatedAnchors(content, [{ start: 1, end: 1 }, { start: 4, end: 4 }]);
+buildUpdatedAnchors(content, [
+  { start: 1, end: 1 },
+  { start: 4, end: 4 },
+]);
 ```
 
 </details>
@@ -1005,30 +1032,48 @@ buildUpdatedAnchors(content, [{ start: 1, end: 1 }, { start: 4, end: 4 }]);
 import { hydrateReadFileStateFromSession } from "./src/agent/read-file-state-hydrator.ts";
 function part(tool: string, path: string, content: string) {
   return {
-    id: `p-${tool}`, type: "tool" as const, tool,
+    id: `p-${tool}`,
+    type: "tool" as const,
+    tool,
     state: {
       status: "completed" as const,
       input: { file_path: path },
       output: { filePath: path },
-      metadata: { readFileState: {
-        schemaVersion: 1, tool: "Edit", path, content, isPartialView: false,
-        readAtMs: 1000, revisionId: "rev1", mtimeMs: 1000,
-        sizeBytes: content.length, servedAnchors: ["AAAA"],
-      } },
+      metadata: {
+        readFileState: {
+          schemaVersion: 1,
+          tool: "Edit",
+          path,
+          content,
+          isPartialView: false,
+          readAtMs: 1000,
+          revisionId: "rev1",
+          mtimeMs: 1000,
+          sizeBytes: content.length,
+          servedAnchors: ["AAAA"],
+        },
+      },
     },
   };
 }
-const messages = [{ info: { id: "m1", role: "assistant" as const }, parts: [
-  part("Edit", "/tmp/a.ts", "const a = 1;"),
-  part("EditAnchored", "/tmp/b.ts", "const b = 1;"),
-] }] as never;
+const messages = [
+  {
+    info: { id: "m1", role: "assistant" as const },
+    parts: [
+      part("Edit", "/tmp/a.ts", "const a = 1;"),
+      part("EditAnchored", "/tmp/b.ts", "const b = 1;"),
+    ],
+  },
+] as never;
 const readFileState = new Map();
 const r = await hydrateReadFileStateFromSession({
-  messages, readFileState: readFileState as never,
-  workingDirectory: "/tmp", workspaceRoot: "/tmp",
+  messages,
+  readFileState: readFileState as never,
+  workingDirectory: "/tmp",
+  workspaceRoot: "/tmp",
 });
-console.log("restoredCount:", r.restoredCount);                       // 初验 1（应为 2）；修复后 2
-console.log([...readFileState.values()].some((e: any) => e.path === "/tmp/b.ts"));  // 初验 false；修复后 true
+console.log("restoredCount:", r.restoredCount); // 初验 1（应为 2）；修复后 2
+console.log([...readFileState.values()].some((e: any) => e.path === "/tmp/b.ts")); // 初验 false；修复后 true
 ```
 
 </details>
@@ -1041,20 +1086,46 @@ console.log([...readFileState.values()].some((e: any) => e.path === "/tmp/b.ts")
 import { resolveToolCallIdentity, isFileDiffToolCall } from "./src/lib/toolIdentity.ts";
 import { readRawToolCallFileSummaries } from "./src/ToolCallBlocks/fileSummaries.ts";
 
-const patch = [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-const a = 1;", "+const a = 2;"] }];
-const display = { kind: "file_diff", filePath: "/tmp/x.ts", additions: 1, deletions: 1, structuredPatch: patch };
-const output = { filePath: "/tmp/x.ts", editCount: 1, originalFile: "const a = 1;",
-  structuredPatch: patch, userModified: false, updatedAnchors: "1:ABCD│const a = 2;" };
+const patch = [
+  {
+    oldStart: 1,
+    oldLines: 1,
+    newStart: 1,
+    newLines: 1,
+    lines: ["-const a = 1;", "+const a = 2;"],
+  },
+];
+const display = {
+  kind: "file_diff",
+  filePath: "/tmp/x.ts",
+  additions: 1,
+  deletions: 1,
+  structuredPatch: patch,
+};
+const output = {
+  filePath: "/tmp/x.ts",
+  editCount: 1,
+  originalFile: "const a = 1;",
+  structuredPatch: patch,
+  userModified: false,
+  updatedAnchors: "1:ABCD│const a = 2;",
+};
 
 // 注意：v4 adapter（toolCallRowAdapter.ts:110）把 display 放在 raw 顶层。
 // 初验时我误把 display 放在 raw.output/raw.result 下，那是错的形态，会永远得到 0。
 const raw = { toolName: "EditAnchored", display, status: "completed" };
-const src = { toolName: "EditAnchored", kind: "EditAnchored", title: "EditAnchored",
-  input: { file_path: "/tmp/x.ts" }, output, raw };
+const src = {
+  toolName: "EditAnchored",
+  kind: "EditAnchored",
+  title: "EditAnchored",
+  input: { file_path: "/tmp/x.ts" },
+  output,
+  raw,
+};
 
-console.log(resolveToolCallIdentity(src).family);              // 初验 "unknown"；修复后 "file-write"
-console.log(isFileDiffToolCall(src));                          // 初验 false；修复后 true
-console.log(readRawToolCallFileSummaries(raw, src).length);    // 初验 0；修复后 1（带 patch）
+console.log(resolveToolCallIdentity(src).family); // 初验 "unknown"；修复后 "file-write"
+console.log(isFileDiffToolCall(src)); // 初验 false；修复后 true
+console.log(readRawToolCallFileSummaries(raw, src).length); // 初验 0；修复后 1（带 patch）
 ```
 
 </details>
@@ -1070,55 +1141,158 @@ console.log(readRawToolCallFileSummaries(raw, src).length);    // 初验 0；修
 import { editAnchoredToolEntry } from "./src/tool/handlers/edit-anchored.ts";
 import { editToolEntry } from "./src/tool/handlers/edit.ts";
 import { writeToolEntry } from "./src/tool/handlers/write.ts";
-import { splitLines, computeLineHashes, hashLineContent, formatAnchor } from "./src/tool/anchor-hash.ts";
+import {
+  splitLines,
+  computeLineHashes,
+  hashLineContent,
+  formatAnchor,
+} from "./src/tool/anchor-hash.ts";
 import { readFile, writeFile, stat } from "node:fs/promises";
 
 const PATH = "/tmp/reg.ts";
-const original = Array.from({length: 120}, (_, i) => `const item${String(i+1).padStart(3,"0")} = ${i+1};`).join("\n") + "\n";
+const original =
+  Array.from(
+    { length: 120 },
+    (_, i) => `const item${String(i + 1).padStart(3, "0")} = ${i + 1};`,
+  ).join("\n") + "\n";
 await writeFile(PATH, original, "utf8");
 
 const port: any = {
-  async stat({ path }: any) { const s = await stat(path);
-    return { path, kind: "file", sizeBytes: s.size, mtimeMs: s.mtimeMs,
-      revision: { id: `r-${s.mtimeMs}-${s.size}`, mtimeMs: s.mtimeMs, sizeBytes: s.size } }; },
-  async readTextFile({ path }: any) { const content = await readFile(path, "utf8"); const s = await stat(path);
-    return { path, content, encoding: "utf8", lineEndings: "lf", bytesRead: Buffer.byteLength(content),
-      sizeBytes: s.size, truncated: false,
-      revision: { id: `r-${s.mtimeMs}-${s.size}`, mtimeMs: s.mtimeMs, sizeBytes: s.size } }; },
-  async writeTextFile({ path, content }: any) { await writeFile(path, content, "utf8"); const s = await stat(path);
-    return { path, bytesWritten: Buffer.byteLength(content),
-      revision: { id: `r-${s.mtimeMs}-${s.size}`, mtimeMs: s.mtimeMs, sizeBytes: s.size } }; },
+  async stat({ path }: any) {
+    const s = await stat(path);
+    return {
+      path,
+      kind: "file",
+      sizeBytes: s.size,
+      mtimeMs: s.mtimeMs,
+      revision: {
+        id: `r-${s.mtimeMs}-${s.size}`,
+        mtimeMs: s.mtimeMs,
+        sizeBytes: s.size,
+      },
+    };
+  },
+  async readTextFile({ path }: any) {
+    const content = await readFile(path, "utf8");
+    const s = await stat(path);
+    return {
+      path,
+      content,
+      encoding: "utf8",
+      lineEndings: "lf",
+      bytesRead: Buffer.byteLength(content),
+      sizeBytes: s.size,
+      truncated: false,
+      revision: {
+        id: `r-${s.mtimeMs}-${s.size}`,
+        mtimeMs: s.mtimeMs,
+        sizeBytes: s.size,
+      },
+    };
+  },
+  async writeTextFile({ path, content }: any) {
+    await writeFile(path, content, "utf8");
+    const s = await stat(path);
+    return {
+      path,
+      bytesWritten: Buffer.byteLength(content),
+      revision: {
+        id: `r-${s.mtimeMs}-${s.size}`,
+        mtimeMs: s.mtimeMs,
+        sizeBytes: s.size,
+      },
+    };
+  },
 };
 
 const KEY = `${PATH}\u00001\u0000`;
 // token-capped Read：只看到前 30 行，isPartialView = true；mtime/size 置旧以触发 stale
-const state = new Map<string, any>([[KEY, {
-  path: PATH, content: splitLines(original).slice(0, 30).join("\n"), offset: undefined, limit: undefined,
-  isPartialView: true, readAt: new Date(Date.now() - 1000), sourceTool: "Read",
-  revisionId: "stale", mtimeMs: 1, sizeBytes: 1,
-  servedAnchors: computeLineHashes(splitLines(original).slice(0, 30)),
-}]]);
-const ctx: any = { toolCallId: "t", traceId: "tr", abortSignal: new AbortController().signal,
-  fileSystemPort: port, readFileState: state, workingDirectory: "/tmp", workspaceRoot: "/tmp", sessionId: "s" };
+const state = new Map<string, any>([
+  [
+    KEY,
+    {
+      path: PATH,
+      content: splitLines(original).slice(0, 30).join("\n"),
+      offset: undefined,
+      limit: undefined,
+      isPartialView: true,
+      readAt: new Date(Date.now() - 1000),
+      sourceTool: "Read",
+      revisionId: "stale",
+      mtimeMs: 1,
+      sizeBytes: 1,
+      servedAnchors: computeLineHashes(splitLines(original).slice(0, 30)),
+    },
+  ],
+]);
+const ctx: any = {
+  toolCallId: "t",
+  traceId: "tr",
+  abortSignal: new AbortController().signal,
+  fileSystemPort: port,
+  readFileState: state,
+  workingDirectory: "/tmp",
+  workspaceRoot: "/tmp",
+  sessionId: "s",
+};
 const run = async (l: string, fn: () => Promise<any>) => {
-  try { const r = await fn(); console.log(l, "->", (r as any)?.result === false ? "REJECTED" : "APPLIED"); }
-  catch (e: any) { console.log(l, "-> THREW:", e?.context?.code ?? String(e?.message).split("\n")[0]); }
+  try {
+    const r = await fn();
+    console.log(l, "->", (r as any)?.result === false ? "REJECTED" : "APPLIED");
+  } catch (e: any) {
+    console.log(l, "-> THREW:", e?.context?.code ?? String(e?.message).split("\n")[0]);
+  }
 };
 
 // A) partial view 下 Edit 第 100 行 → 正确拒绝
 await run("A) partial view 下 Edit 第 100 行", () =>
-  editToolEntry.handler!({ file_path: PATH, old_string: "const item100 = 100;", new_string: "const item100 = X;" }, ctx));
+  editToolEntry.handler!(
+    {
+      file_path: PATH,
+      old_string: "const item100 = 100;",
+      new_string: "const item100 = X;",
+    },
+    ctx,
+  ),
+);
 
 // B) 外部改动第 3 行 → EditAnchored stale 拒绝
 await writeFile(PATH, original.replace("const item003 = 3;", "const item003 = 333;"), "utf8");
 await run("B) EditAnchored stale 拒绝", () =>
-  editAnchoredToolEntry.handler!({ file_path: PATH, edits: [{ remove_from: formatAnchor(3, hashLineContent("const item003 = 3;")), remove_to: formatAnchor(3, hashLineContent("const item003 = 3;")), replacement_text: "x" }] }, ctx));
+  editAnchoredToolEntry.handler!(
+    {
+      file_path: PATH,
+      edits: [
+        {
+          remove_from: formatAnchor(3, hashLineContent("const item003 = 3;")),
+          remove_to: formatAnchor(3, hashLineContent("const item003 = 3;")),
+          replacement_text: "x",
+        },
+      ],
+    },
+    ctx,
+  ),
+);
 const e = state.get(KEY);
-console.log("   拒绝后 isPartialView =", e.isPartialView, "| content 行数 =", splitLines(e.content).length, "/120");
+console.log(
+  "   拒绝后 isPartialView =",
+  e.isPartialView,
+  "| content 行数 =",
+  splitLines(e.content).length,
+  "/120",
+);
 
 // C) 再用 Edit 第 100 行 → 当前会 APPLIED（缺陷）
 await run("C) 再用 Edit 第 100 行", () =>
-  editToolEntry.handler!({ file_path: PATH, old_string: "const item100 = 100;", new_string: "const item100 = X;" }, ctx));
+  editToolEntry.handler!(
+    {
+      file_path: PATH,
+      old_string: "const item100 = 100;",
+      new_string: "const item100 = X;",
+    },
+    ctx,
+  ),
+);
 ```
 
 把 B 换成成功的锚点编辑（改第 3 行，锚点门允许），C 同样会 `APPLIED`。把 C 换成 `writeToolEntry`
@@ -1145,42 +1319,115 @@ const PATH = "/tmp/persist.ts";
 const original = "const keep = 1;\nconst change = 2;\nconst tail = 3;\n";
 await writeFile(PATH, original, "utf8");
 const port: any = {
-  async readTextFile({ path }: any) { const content = await readFile(path, "utf8"); const s = await stat(path);
-    return { path, content, encoding: "utf8", lineEndings: "lf", bytesRead: Buffer.byteLength(content),
-      sizeBytes: s.size, truncated: false,
-      revision: { id: `r-${s.size}`, mtimeMs: s.mtimeMs, sizeBytes: s.size } }; },
-  async writeTextFile({ path, content }: any) { await writeFile(path, content, "utf8"); const s = await stat(path);
-    return { path, bytesWritten: Buffer.byteLength(content),
-      revision: { id: `r-${s.size}`, mtimeMs: s.mtimeMs, sizeBytes: s.size } }; },
+  async readTextFile({ path }: any) {
+    const content = await readFile(path, "utf8");
+    const s = await stat(path);
+    return {
+      path,
+      content,
+      encoding: "utf8",
+      lineEndings: "lf",
+      bytesRead: Buffer.byteLength(content),
+      sizeBytes: s.size,
+      truncated: false,
+      revision: { id: `r-${s.size}`, mtimeMs: s.mtimeMs, sizeBytes: s.size },
+    };
+  },
+  async writeTextFile({ path, content }: any) {
+    await writeFile(path, content, "utf8");
+    const s = await stat(path);
+    return {
+      path,
+      bytesWritten: Buffer.byteLength(content),
+      revision: { id: `r-${s.size}`, mtimeMs: s.mtimeMs, sizeBytes: s.size },
+    };
+  },
 };
 const KEY = createReadFileStateKey(PATH, 1, undefined);
-const state = new Map<string, any>([[KEY, {
-  path: PATH, content: original, offset: undefined, limit: undefined, isPartialView: false,
-  readAt: new Date(Date.now() - 60_000), sourceTool: "Read", revisionId: "r-old", mtimeMs: 1, sizeBytes: 1,
-  servedAnchors: splitLines(original).map(hashLineContent),
-}]]);
+const state = new Map<string, any>([
+  [
+    KEY,
+    {
+      path: PATH,
+      content: original,
+      offset: undefined,
+      limit: undefined,
+      isPartialView: false,
+      readAt: new Date(Date.now() - 60_000),
+      sourceTool: "Read",
+      revisionId: "r-old",
+      mtimeMs: 1,
+      sizeBytes: 1,
+      servedAnchors: splitLines(original).map(hashLineContent),
+    },
+  ],
+]);
 
 // 会话1：外部改动 → stale 拒绝（拒绝信息回传 v2 锚点并并进内存 served）
 await writeFile(PATH, original.replace("const change = 2;", "const change = 999;"), "utf8");
 const captured: any[] = [];
-const ctx: any = { toolCallId: "c1", traceId: "tr", abortSignal: new AbortController().signal,
-  fileSystemPort: port, readFileState: state, workingDirectory: "/tmp", workspaceRoot: "/tmp", sessionId: "s",
-  recordReadFileStateMetadata: (m: any) => captured.push(m) };
-const r: any = await editAnchoredToolEntry.handler!({ file_path: PATH, edits: [{ remove_from: formatAnchor(2, hashLineContent("const change = 2;")), remove_to: formatAnchor(2, hashLineContent("const change = 2;")), replacement_text: "x" }] }, ctx);
+const ctx: any = {
+  toolCallId: "c1",
+  traceId: "tr",
+  abortSignal: new AbortController().signal,
+  fileSystemPort: port,
+  readFileState: state,
+  workingDirectory: "/tmp",
+  workspaceRoot: "/tmp",
+  sessionId: "s",
+  recordReadFileStateMetadata: (m: any) => captured.push(m),
+};
+const r: any = await editAnchoredToolEntry.handler!(
+  {
+    file_path: PATH,
+    edits: [
+      {
+        remove_from: formatAnchor(2, hashLineContent("const change = 2;")),
+        remove_to: formatAnchor(2, hashLineContent("const change = 2;")),
+        replacement_text: "x",
+      },
+    ],
+  },
+  ctx,
+);
 const v2Hash = hashLineContent("const change = 999;");
 console.log("会话1: 内存 served 含 v2 锚点:", state.get(KEY).servedAnchors.includes(v2Hash));
 
 // 会话1 落盘：复刻 call-runner 的失败收口
 const toolCall: any = { id: "c1", name: "EditAnchored", input: {} };
-const failedResult: any = createErrorResult(toolCall, createToolHandlerFailureError(toolCall, r), 1);
-console.log("会话1 落盘的失败部件带 readFileStateMetadata:", "readFileStateMetadata" in failedResult);
+const failedResult: any = createErrorResult(
+  toolCall,
+  createToolHandlerFailureError(toolCall, r),
+  1,
+);
+console.log(
+  "会话1 落盘的失败部件带 readFileStateMetadata:",
+  "readFileStateMetadata" in failedResult,
+);
 
 // 会话2：resume
-const parts = [{ id: "p1", type: "tool" as const, tool: "EditAnchored",
-  state: { status: "error" as const, input: { file_path: PATH }, error: "stale",
-    metadata: failedResult.readFileStateMetadata ? { readFileState: failedResult.readFileStateMetadata } : {} } }];
+const parts = [
+  {
+    id: "p1",
+    type: "tool" as const,
+    tool: "EditAnchored",
+    state: {
+      status: "error" as const,
+      input: { file_path: PATH },
+      error: "stale",
+      metadata: failedResult.readFileStateMetadata
+        ? { readFileState: failedResult.readFileStateMetadata }
+        : {},
+    },
+  },
+];
 const st2 = new Map();
-const h = await hydrateReadFileStateFromSession({ messages: [{ info: { id: "m1", role: "assistant" as const }, parts }] as never, readFileState: st2 as never, workingDirectory: "/tmp", workspaceRoot: "/tmp" });
+const h = await hydrateReadFileStateFromSession({
+  messages: [{ info: { id: "m1", role: "assistant" as const }, parts }] as never,
+  readFileState: st2 as never,
+  workingDirectory: "/tmp",
+  workspaceRoot: "/tmp",
+});
 const restored = [...st2.values()].flatMap((e: any) => e.servedAnchors ?? []);
 console.log("会话2: 恢复条目数 =", h.restoredCount, "| v2 锚点恢复:", restored.includes(v2Hash));
 ```
@@ -1193,22 +1440,33 @@ console.log("会话2: 恢复条目数 =", h.restoredCount, "| v2 锚点恢复:",
 <summary>§7.2：空内容渲染出假行、把空行哈希并进 served</summary>
 
 ```ts
-import { resolveAnchorEdits, applyAnchorEdits, buildUpdatedAnchors } from "./src/tool/anchor-resolve.ts";
-import { splitLines, computeLineHashes, hashLineContent, formatAnchor } from "./src/tool/anchor-hash.ts";
+import {
+  resolveAnchorEdits,
+  applyAnchorEdits,
+  buildUpdatedAnchors,
+} from "./src/tool/anchor-resolve.ts";
+import {
+  splitLines,
+  computeLineHashes,
+  hashLineContent,
+  formatAnchor,
+} from "./src/tool/anchor-hash.ts";
 
 const c = "A1\nA2\nA3";
 const served = new Set(computeLineHashes(splitLines(c)));
 const at = (ln: number) => formatAnchor(ln, hashLineContent(splitLines(c)[ln - 1]!));
 
-const r = resolveAnchorEdits(c, served, [{ removeFrom: at(1), removeTo: at(3), replacementText: "" }]);
+const r = resolveAnchorEdits(c, served, [
+  { removeFrom: at(1), removeTo: at(3), replacementText: "" },
+]);
 if (r.status === "resolved") {
   const a = applyAnchorEdits(c, r.edits);
   const u = buildUpdatedAnchors(a.content, a.changedRanges);
-  console.log("内容:", JSON.stringify(a.content));              // ""
+  console.log("内容:", JSON.stringify(a.content)); // ""
   console.log("changedRanges:", JSON.stringify(a.changedRanges)); // [{"start":0,"end":0}]
-  console.log("回传文本:", JSON.stringify(u.text));             // "1:RVM2│"
+  console.log("回传文本:", JSON.stringify(u.text)); // "1:RVM2│"
   console.log("servedHashes:", JSON.stringify(u.servedHashes)); // ["RVM2"]
-  console.log("空串哈希 =", hashLineContent(""));               // RVM2
+  console.log("空串哈希 =", hashLineContent("")); // RVM2
 }
 ```
 
@@ -1225,7 +1483,9 @@ import { resolveAnchorEdits, createAnchorFailureMessage } from "./src/tool/ancho
 
 const content = "const a = 1;\nconst b = 2;\n";
 // 空 served：模拟"没有任何读状态"
-const r = resolveAnchorEdits(content, new Set(), [{ removeFrom: "1:AAAA", removeTo: "1:AAAA", replacementText: "x" }]);
+const r = resolveAnchorEdits(content, new Set(), [
+  { removeFrom: "1:AAAA", removeTo: "1:AAAA", replacementText: "x" },
+]);
 if (r.status === "failed") {
   const f = createAnchorFailureMessage({ content, failure: r, total: 1 });
   console.log("reason =", r.reason, "| 渲染哈希数 =", f.servedHashes.length);
@@ -1252,7 +1512,9 @@ for (const [label, c] of [
   ["无尾随换行", "A1\nA2\nA3"],
 ] as const) {
   const hashes = c.split(/\r?\n/).map(hashLineContent);
-  console.log(`Read(${label}): 行数=${c.split(/\r?\n/).length} 含空行哈希=${hashes.includes(empty)}`);
+  console.log(
+    `Read(${label}): 行数=${c.split(/\r?\n/).length} 含空行哈希=${hashes.includes(empty)}`,
+  );
 }
 // Read(有尾随换行): 行数=4 含空行哈希=true
 // Read(无尾随换行): 行数=3 含空行哈希=false
@@ -1291,29 +1553,53 @@ node --import tsx --test test/*.test.ts | tail -8
 import { hydrateReadFileStateFromSession } from "./src/agent/read-file-state-hydrator.ts";
 
 const mkMeta = (path: string, tool: string, content: string) => ({
-  readFileState: { schemaVersion: 1, tool, path, content, isPartialView: false,
-    readAtMs: 1000, revisionId: "r1", mtimeMs: 1000, sizeBytes: content.length,
-    servedAnchors: ["AAAA", "BBBB"] },
+  readFileState: {
+    schemaVersion: 1,
+    tool,
+    path,
+    content,
+    isPartialView: false,
+    readAtMs: 1000,
+    revisionId: "r1",
+    mtimeMs: 1000,
+    sizeBytes: content.length,
+    servedAnchors: ["AAAA", "BBBB"],
+  },
 });
 const errPart = (tool: string, path: string, meta: any) => ({
-  id: "p1", type: "tool" as const, tool,
-  state: { status: "error" as const, input: { file_path: path }, error: "boom", metadata: meta },
+  id: "p1",
+  type: "tool" as const,
+  tool,
+  state: {
+    status: "error" as const,
+    input: { file_path: path },
+    error: "boom",
+    metadata: meta,
+  },
 });
 const msg = (parts: any[]) => [{ info: { id: "m1", role: "assistant" as const }, parts }] as never;
 
 const run = async (label: string, parts: any[]) => {
   const st = new Map();
   const r = await hydrateReadFileStateFromSession({
-    messages: msg(parts), readFileState: st as never,
-    workingDirectory: "/tmp", workspaceRoot: "/tmp",
+    messages: msg(parts),
+    readFileState: st as never,
+    workingDirectory: "/tmp",
+    workspaceRoot: "/tmp",
   });
   console.log(`${label}: restored=${r.restoredCount} size=${st.size}`);
 };
 
 await run("error 件 metadata 为空          ", [errPart("Write", "/tmp/a.ts", {})]);
-await run("error 件带 Write 读状态        ", [errPart("Write", "/tmp/a.ts", mkMeta("/tmp/a.ts", "Write", "x"))]);
-await run("error 件带 EditAnchored 读状态 ", [errPart("EditAnchored", "/tmp/b.ts", mkMeta("/tmp/b.ts", "EditAnchored", "x"))]);
-await run("error 件 tool 名不认识         ", [errPart("EditAnchored", "/tmp/b.ts", mkMeta("/tmp/b.ts", "SomethingElse", "x"))]);
+await run("error 件带 Write 读状态        ", [
+  errPart("Write", "/tmp/a.ts", mkMeta("/tmp/a.ts", "Write", "x")),
+]);
+await run("error 件带 EditAnchored 读状态 ", [
+  errPart("EditAnchored", "/tmp/b.ts", mkMeta("/tmp/b.ts", "EditAnchored", "x")),
+]);
+await run("error 件 tool 名不认识         ", [
+  errPart("EditAnchored", "/tmp/b.ts", mkMeta("/tmp/b.ts", "SomethingElse", "x")),
+]);
 ```
 
 输出（第 2 行即「天然被跳过」不成立的证据）：
@@ -1407,13 +1693,13 @@ Result of calling the Read tool:
 
 **实测归因（全部 65 次 unserved，时序比对）**：
 
-| 归因 | 次数 |
-| --- | --- |
-| 提交哈希 ≠ Read 展示的哈希（转写错误） | 18 |
-| 完全没 Read 过 | 15 |
-| 读过但锚点行不在读取范围内 | 10 |
-| **读后被压缩清空** | **5** |
-| 同名不同路径（读的是兄弟文件） | 1 |
+| 归因                                   | 次数  |
+| -------------------------------------- | ----- |
+| 提交哈希 ≠ Read 展示的哈希（转写错误） | 18    |
+| 完全没 Read 过                         | 15    |
+| 读过但锚点行不在读取范围内             | 10    |
+| **读后被压缩清空**                     | **5** |
+| 同名不同路径（读的是兄弟文件）         | 1     |
 
 对那 5 例做了决定性比对：**逐字比对提交哈希与 Read 展示哈希，5 例全部是转写错误**，
 不是被压缩误伤。即本条**目前没有可证实的真实受害者**，是理论坑位而非正在流血的口子。
@@ -1427,9 +1713,9 @@ Read / EditAnchored 结果重建 served 子集**。
 
 复用 §4/§7.1 已有的恢复路径思想，但**必须保持两种语义的分界**：
 
-| 字段 | 语义 | 压缩后 |
-| --- | --- | --- |
-| `servedAnchors` | 「这行给模型看过」——随会话上下文走 | **按保留条目重建** |
+| 字段                                         | 语义                               | 压缩后                 |
+| -------------------------------------------- | ---------------------------------- | ---------------------- |
+| `servedAnchors`                              | 「这行给模型看过」——随会话上下文走 | **按保留条目重建**     |
 | `content`/`mtimeMs`/`sizeBytes`/`revisionId` | 「文件未变」门禁依据——随磁盘事实走 | **不重建**（保持清空） |
 
 **为什么门禁字段不能一起重建**：`getEditableReadStateFailure` 用它们判 stale
@@ -1438,6 +1724,7 @@ Read / EditAnchored 结果重建 served 子集**。
 同一个错误。**served 只增不减，门禁必须重新建立。**
 
 **实现约束（已核实）**：
+
 - 重建走**已保留条目**（`preservedEntries`），它们是 `RuntimeMessageEntry`，
   工具结果在 `message.role === "tool"` 且带 `toolName`；锚点正文在 `content` 文本里，
   用 `parseAnchorToken`/`ANCHOR_SEPARATOR` 解析（`anchor-hash.ts`）。
@@ -1465,16 +1752,16 @@ Read / EditAnchored 结果重建 served 子集**。
 
 三套独立实现的对比（各自 star 数都不低，说明这些取舍经过真实使用验证）：
 
-| | ZCode | oh-my-openagent | **oh-my-pi** |
-| --- | --- | --- | --- |
-| 哈希粒度 | **行级** | 行级 | **文件级**（整文件一个 tag） |
-| 引用形式 | `73:DG75` | `42#VK` | `[path#A1B2]` + 裸行号 |
-| 哈希位宽 | 4 字符 base32 = 1,048,576 | 2 字符 = **256** | 4 位十六进制 = 65,536 |
-| 算法 | FNV-1a 32 | XXH32 | XXH32 (`& 0xffff`) |
-| 失配标记 | 仅范围 | `>>>` 标问题行 | **`*` 标问题行** |
-| remaps | 无 | **有**（旧→新映射） | 无 |
-| 自愈（唯一命中即移动） | **有** | 无 | 无（靠多版本历史） |
-| 实现规模 | ~600 行 TS | ~6700 行 TS | 6712 行 Rust |
+|                        | ZCode                     | oh-my-openagent     | **oh-my-pi**                 |
+| ---------------------- | ------------------------- | ------------------- | ---------------------------- |
+| 哈希粒度               | **行级**                  | 行级                | **文件级**（整文件一个 tag） |
+| 引用形式               | `73:DG75`                 | `42#VK`             | `[path#A1B2]` + 裸行号       |
+| 哈希位宽               | 4 字符 base32 = 1,048,576 | 2 字符 = **256**    | 4 位十六进制 = 65,536        |
+| 算法                   | FNV-1a 32                 | XXH32               | XXH32 (`& 0xffff`)           |
+| 失配标记               | 仅范围                    | `>>>` 标问题行      | **`*` 标问题行**             |
+| remaps                 | 无                        | **有**（旧→新映射） | 无                           |
+| 自愈（唯一命中即移动） | **有**                    | 无                  | 无（靠多版本历史）           |
+| 实现规模               | ~600 行 TS                | ~6700 行 TS         | 6712 行 Rust                 |
 
 **收敛点**：三者都实现「读过才允许改」+「不猜」+「失配回传上下文」。
 **分歧点**：`>>>` 标记 2/3 有（我们缺）；remaps 1/3 有（可选择不做）。
@@ -1494,6 +1781,7 @@ Read / EditAnchored 结果重建 served 子集**。
 （`>>> 73:ZF8K│## 4. 真机验证`），而解析器只认裸锚点，于是**新增一类 malformed**。
 
 `stripAnchorDecorations` 剥两样东西，都不碰锚点本体：
+
 - 行首装饰：`>>> ` / `* ` / `+ ` / `- `（错误信息与 diff 的记号）
 - 分隔符之后的正文：`22:AB3F│const x = 1;` → `22:AB3F`
 
@@ -1568,12 +1856,12 @@ Read 输出总计        11,582,220 字符 ≈ 3,860,740 token
 
 **（a）失败原因的分布**（全库 757 次 `EditAnchored`）：
 
-| 原因 | 次数 | 性质 |
-| --- | --- | --- |
-| `unserved`（该哈希从未展示过） | 66 | 最大头 |
-| `ambiguous`（哈希多命中） | 55 | 次之 |
-| malformed | 11 | — |
-| `stale`（展示过但内容已变） | 9 | — |
+| 原因                           | 次数 | 性质   |
+| ------------------------------ | ---- | ------ |
+| `unserved`（该哈希从未展示过） | 66   | 最大头 |
+| `ambiguous`（哈希多命中）      | 55   | 次之   |
+| malformed                      | 11   | —      |
+| `stale`（展示过但内容已变）    | 9    | —      |
 
 **（b）恢复能力**：失败后同文件下一次编辑 **66.2% 一次就成功**，
 连续失败链 109/16/3/1 条（1/2/3/4 次）。说明现有回传区基本够用。
@@ -1617,10 +1905,10 @@ Read 调用形态：整文件读 386，范围读(offset/limit) 2258   ← 85% �
 `unserved` 与 `stale` 已是两个独立原因，但**恢复指引写得一样模糊**。
 两者的正确动作不同：
 
-| 原因 | 含义 | 正确动作 |
-| --- | --- | --- |
-| `stale` | 该哈希**展示过**，但内容已变（别人改了文件） | 用回传区的**新**锚点重发 |
-| `unserved` | 该哈希**从未展示过**（编造 / 抄了他处的） | **必须 Read**，不能猜 |
+| 原因       | 含义                                         | 正确动作                 |
+| ---------- | -------------------------------------------- | ------------------------ |
+| `stale`    | 该哈希**展示过**，但内容已变（别人改了文件） | 用回传区的**新**锚点重发 |
+| `unserved` | 该哈希**从未展示过**（编造 / 抄了他处的）    | **必须 Read**，不能猜    |
 
 描述与错误信息都要点明这个区别。另外 `unserved` 且 `hintLine < 1` 时
 （回传区 0 行，见 7.9.1c），**改进指路方式**：不改「不猜区域」这条原则，
@@ -1753,3 +2041,111 @@ different versions. Copy the whole `N:HASH` pair from a single Read result.
 5. `ambiguous` 且行号越界时不输出该提示（信息不足不猜）。
 6. `stale` 文案点明「自行拼接两半」这一成因。
 7. `EditAnchored` 描述含「不得拼接锚点」与「重复行共用一个哈希是正常的」。
+
+## 7.11 第九轮：候选逐条列出 + 点明「哈希来自别的文件」
+
+### 7.11.1 数据（两个改动的依据）
+
+**（a）ambiguous 的回传区覆盖不了候选**（全库 62 次，可解析 21 次）：
+
+```
+回传区覆盖全部候选: 0
+回传区只覆盖部分候选: 21   ← 100%
+```
+
+回传区以 `hintLine` 为中心取 ±3 行，而模型看到的是「matches 6 lines」——
+它知道有 6 处，却只看到其中 1 处的周围内容，只能回去重读。
+
+命中数分布（说明「逐条列出」可行）：
+
+| 命中数 | 次数 |
+| ------ | ---- |
+| 2      | 19   |
+| 3–5    | 10   |
+| 6      | 10   |
+| 7–19   | 20   |
+| ≥20    | 3    |
+
+绝大多数 ≤ 10 行，逐条列出的成本远低于一次重读往返。
+
+**（b）unserved 的真实成因是「跨文件抄哈希」**（`sess_ade8a566`，3 次全是）：
+
+```
+settingsNavigation.ts  提交 78:1ATY   本文件从未展示过 → 别的文件展示过 [8, 50, 61]
+settingsPageConfig.ts  提交 13:C27G   本文件从未展示过 → 别的文件展示过 [8, 50, 61]
+site-bookmarks.md      提交 146:76EJ  本文件从未展示过 → 别的文件展示过 [400, 401]
+```
+
+典型：模型 15:21:52 只读了 `settingsPageConfig.ts` 的 124–137 行，
+15:21:59 却提交 `13:C27G`——第 13 行根本不在它读的范围内。
+而 `C27G` 是 `import {` 的哈希，一个在多文件里高频出现的行。
+
+**注意这是上一轮（§7.10）误判的同一个会话的延续**：上一轮它自称「哈希空间小」，
+这一轮数据显示真实模式是「跨文件串了锚点」。
+
+### 7.11.2 决定一：ambiguous 逐条列出全部候选
+
+`AnchorResolveFailure` 新增 `candidateLines`（`resolveEndpoint` 已算出全部候选，
+此前只报了 `matchCount`）。失败信息新增 `formatCandidateLines`：
+
+```
+All 3 matching lines:
+  2:91X2│    continue
+  4:91X2│    continue
+  6:91X2│    continue
+```
+
+列出的行**同样进 served**——模型照抄其中任一条都能直接成功。
+
+**封顶 `MAX_LISTED_CANDIDATES = 12`**：超过则退回现状（只报计数）。
+理由：命中上百行时列出会淹掉上下文，收益为负。阈值取自实测分布（≤12 覆盖
+62 次中的 54 次 ≈ 87%）。
+
+### 7.11.3 决定二：unserved 点明「哈希来自别的文件」
+
+新增 `isHashServedInOtherFileOnly(readFileState, filePath, hash)`（住在
+`anchor-served.ts`，与 served 聚合同一处）。命中时补一句：
+
+```
+Note: the hash `C27G` was shown to you in a DIFFERENT file. Anchors are per-file —
+a hash that is valid elsewhere is not valid here.
+```
+
+**为什么不由工具层自己做**：`resolveAnchorEdits` 只拿到**本文件**的 `servedHashes`，
+跨文件信息在 handler 的 `context.readFileState` 里。所以判定放在 handler，
+结果通过 `createAnchorFailureMessage` 的 `hashServedInOtherFile` 传入。
+
+**这修正了 §7.10 的一个表述缺口**：那句「which was never shown to you for this file」
+字面正确，但模型会理解成「我编的」而选择重读；实际它是「抄了别处的」，
+正确动作是**换来源**而非重读。
+
+### 7.11.4 决定三：描述层补「锚点按文件隔离」
+
+`EditAnchored` 描述新增一条，把上面这个高频模式写成事前约束：
+
+```
+- Anchors are per-file: a hash you saw in file A is meaningless in file B. When you
+  switch files, the anchor must come from that file's own Read result. High-frequency
+  lines (`import {`, `}`, `continue`) share hashes across files — copying one from
+  elsewhere is the most common cause of a rejected anchor.
+```
+
+### 7.11.5 顺带修正文档失实
+
+`CUSTOM_DEV_WORKFLOW.md:242` 写「锚点必须是 read 返回的 **3 字符**哈希」，
+实际 `ANCHOR_HASH_LENGTH = 4`。已改为「`N:HASH` 对（4 字符哈希，见
+`ANCHOR_HASH_LENGTH`）」。这条会误导后面读它的人。
+
+（`specs/edit-tool-roadmap.md` 里的「3 字符哈希」是**当时的设计预案**，
+后来实现为 4 位，属历史记录，不改。）
+
+### 7.11.6 验收
+
+1. ambiguous 时列出全部候选（含行号、哈希、内容），且声明总数。
+2. 列出的候选行进 served，照抄可直接成功。
+3. 候选数超过 `MAX_LISTED_CANDIDATES` 时退回只报计数。
+4. `isHashServedInOtherFileOnly` 对「仅别的文件」为 true、对「本文件」为 false。
+5. unserved 且跨文件时，消息含「DIFFERENT file」与「Anchors are per-file」。
+6. 非跨文件时不输出该提示。
+7. 描述含「Anchors are per-file」。
+8. `collectServedAnchors` 仍只聚合本文件（跨文件检测不污染它）。

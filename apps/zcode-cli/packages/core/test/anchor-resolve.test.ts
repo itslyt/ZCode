@@ -10,12 +10,14 @@ import {
 } from "../src/tool/anchor-hash.js";
 import {
   applyAnchorEdits,
-  buildUpdatedAnchors,
-  createAnchorFailureMessage,
   findOverlappingAnchorEdits,
-  formatAnchorRegion,
   resolveAnchorEdits,
 } from "../src/tool/anchor-resolve.js";
+import {
+  buildUpdatedAnchors,
+  createAnchorFailureMessage,
+  formatAnchorRegion,
+} from "../src/tool/anchor-render.js";
 import { mergeServedAnchors } from "../src/tool/anchor-served.js";
 
 /** 取第 line 行（1 起始）的锚点字符串。 */

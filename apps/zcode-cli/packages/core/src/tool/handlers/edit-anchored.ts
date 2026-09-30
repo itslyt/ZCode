@@ -28,15 +28,15 @@ import {
 } from "@zcode/contracts";
 import {
   applyAnchorEdits,
-  buildUpdatedAnchors,
-  createAnchorFailureMessage,
   findOverlappingAnchorEdits,
   resolveAnchorEdits,
   type AnchorEditRequest,
   type AnchorFailureReason,
   type ResolvedAnchorEdit,
 } from "../anchor-resolve.js";
-import { collectServedAnchors, mergeServedAnchors } from "../anchor-served.js";
+import { buildUpdatedAnchors, createAnchorFailureMessage } from "../anchor-render.js";
+import { collectServedAnchors, isHashServedInOtherFileOnly, mergeServedAnchors } from "../anchor-served.js";
+import { anchorHashOf } from "../anchor-hash.js";
 import {
   ANCHOR_FAILURE_ERROR_CODE,
   createEditAnchoredFailure,
@@ -83,6 +83,7 @@ const EDIT_ANCHORED_PROVIDER_DESCRIPTION = [
   "- Never splice an anchor together from memory: a line number from one Read, a hash from another, or a line number from before an edit plus a hash from after it. Such a pair is rejected even though each half looks right. Copy the whole `N:HASH` pair verbatim from a single Read, or from the region an edit just returned.",
   "- Repeated lines (`continue`, `}`, blank) share one hash — that is the hash working, not a collision. For those, the line number is what picks the line, so the pair must come from the same Read. If it is ambiguous, the error lists the candidates.",
   "- An elision marker (e.g. `... lines 61-890 omitted ...`) is NOT content. Never anchor on, inside, or across it.",
+  "- Anchors are per-file: a hash you saw in file A is meaningless in file B. When you switch files, the anchor must come from that file's own Read result. High-frequency lines (`import {`, `}`, `continue`) share hashes across files — copying one from elsewhere is the most common cause of a rejected anchor.",
   "- If an anchor is rejected: for `no longer exists` (the line was shown but has since changed) resend with a fresh anchor from the region below; for `was never shown to you` the hash was never printed for this file, so Read the range instead of guessing a new one.",
 ].join("\n");
 
@@ -180,6 +181,10 @@ const editAnchoredHandler: ToolHandler = async (input, context) => {
     const failure = createAnchorFailureMessage({
       content,
       failure: resolved,
+      // 跨文件信息只有 handler 拿得到（工具层只拿到本文件的 servedHashes）。
+      hashServedInOtherFile:
+        resolved.reason === "unserved" &&
+        isHashServedInOtherFileOnly(context.readFileState, filePath, anchorHashOf(resolved.anchor)),
       total: requests.length,
     });
     // 拒绝路径同样要落 served：错误信息里刚把该区域的新锚点展示给模型了，

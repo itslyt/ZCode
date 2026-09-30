@@ -239,7 +239,7 @@ comm -23 <(git diff --name-only <合并前HEAD> | sort) \
 
 ## 7. 通用坑位清单
 
-- edit 工具锚点必须是 read 返回的 3 字符哈希（非行内容/行号）；同文件批量编辑从下往上或拆单发（`E_BATCH_DISPLACED`）；替换文本重复包含锚行内容会产生重复行，发现立即删除修复。
+- edit 工具锚点必须是 read 返回的 `N:HASH` 对（4 字符哈希，见 `ANCHOR_HASH_LENGTH`；非行内容，行号只做定位）；同文件批量编辑从下往上或拆单发（`E_BATCH_DISPLACED`）；替换文本重复包含锚行内容会产生重复行，发现立即删除修复。
 - **改动会跨会话存活的读状态时，Read 必须只传 `file_path`**：带 `limit` 的 Read 算「范围读」，按既有设计不跨 resume 恢复（`isHistoricalFullReadWindow` 要求 `limit === undefined`，见 `agent/read-file-state-hydrator.ts`），于是连 Read 自己那份都恢复不了，看不出你想验的东西修没修。模型习惯给 Read 补 `limit: 2000`，prompt 里要写死。
 - **`apps/zcode-cli` 单源文件不得超过 400 行**（该目录 AGENTS.md 硬规定）；超了要拆模块，不能继续堆。写之前先 `wc -l` 看一眼。
 - 改提示词/工具选择行为时：系统提示词的工程规范在 `apps/zcode-cli/packages/core/src/context/sections/identity.ts` 的 `PERSONA`（**没有**独立 prompt 文件）；工具描述在各 `tool/handlers/<tool>.ts` 顶部常量。两者都是模型的路由信号，改完用 `buildIdentitySection().content` 断言文本真的渲染出来了。

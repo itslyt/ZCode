@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  buildUpdatedAnchors,
-  createAnchorFailureMessage,
   resolveAnchorEdits,
 } from "../src/tool/anchor-resolve.js";
+import {
+  buildUpdatedAnchors,
+  createAnchorFailureMessage,
+} from "../src/tool/anchor-render.js";
 import { hashLineContent } from "../src/tool/anchor-hash.js";
 import { editAnchoredToolEntry } from "../src/tool/handlers/edit-anchored.js";
 import { formatUnseenLinesNotice } from "../src/tool/handlers/read-text.js";

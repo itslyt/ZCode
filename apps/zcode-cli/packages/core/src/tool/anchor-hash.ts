@@ -83,6 +83,17 @@ export interface ParsedAnchor {
 }
 
 /**
+ * 取出锚点串里的哈希部分；解析不出时原样返回（用于「这个哈希来自哪个文件」这类提示）。
+ *
+ * 注意：返回的**不是**校验过的合法哈希，调用方不应据此做定位判断。
+ */
+export function anchorHashOf(raw: string): string {
+  const token = parseAnchorToken(raw);
+  if (token.kind === "explicit" || token.kind === "hash-only") return token.hash;
+  return stripAnchorDecorations(raw);
+}
+
+/**
  * 剥掉排版记号，只留锚点本体。
  *
  * 错误信息会渲染 `>>> 22:AB3F│...` 与 `22:AB3F│content`，模型常连标记或正文一起抄回来。

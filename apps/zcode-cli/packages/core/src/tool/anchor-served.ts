@@ -42,3 +42,24 @@ export function collectServedAnchors(
   }
   return served;
 }
+
+/**
+ * 该哈希是否只在**其他文件**里展示过（本文件没有）。
+ *
+ * 用途：`unserved` 时区分两种成因——「凭空编的」与「抄了别的文件的」。
+ * 依据 sess_ade8a566：三次 unserved 全是后者（把 A 文件看到的 `13:C27G` 用到
+ * B 文件上，而 `C27G` 是 `import {` 这类高频行）。明说「这是别的文件的锚点」
+ * 比笼统的「从未展示过」更能让模型立刻改对。见 §7.11。
+ */
+export function isHashServedInOtherFileOnly(
+  readFileState: ReadFileStateMap | undefined,
+  filePath: string,
+  hash: string,
+): boolean {
+  if (!readFileState) return false;
+  for (const entry of readFileState.values()) {
+    if (entry.path === filePath) continue;
+    if (entry.servedAnchors?.includes(hash)) return true;
+  }
+  return false;
+}
