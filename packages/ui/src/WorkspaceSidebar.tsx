@@ -865,12 +865,22 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   );
   const canToggleAllProjectTaskGroups =
     !showArchivedTasks && taskOrganizeBy === "project" && projectWorkspaceTabs.length > 0;
-  const showToggleAllTaskGroups = canToggleAllProjectTaskGroups || showToggleAllGroupedTaskGroups;
-  const canToggleAllTaskGroups = canToggleAllProjectTaskGroups || canToggleAllGroupedTaskGroups;
-  const areAllTaskGroupsExpanded =
-    taskOrganizeBy === "grouped"
-      ? areAllToggleableGroupedTaskGroupsOpen
-      : purposeSectionPreferences.projectsExpanded && areAllWorkspaceGroupsExpanded;
+  // 「网站收藏」是同一套 purpose 分区里可与项目并存的区块；task 分区由项目/分组分支单独展开。
+  // 较早的实现只把 projectsExpanded 算进去，导致展开了收藏分区却仍显示「展开全部」
+  // （或反之），按钮状态与用户看到的侧边栏对不上。
+  const canToggleAllBookmarkSection = bookmarkCount > 0;
+  const showToggleAllTaskGroups =
+    canToggleAllProjectTaskGroups || showToggleAllGroupedTaskGroups || canToggleAllBookmarkSection;
+  const canToggleAllTaskGroups =
+    canToggleAllProjectTaskGroups || canToggleAllGroupedTaskGroups || canToggleAllBookmarkSection;
+  const areAllTaskGroupsExpanded = (() => {
+    if (taskOrganizeBy === "grouped") return areAllToggleableGroupedTaskGroupsOpen;
+    // 非分组模式：项目与收藏分区都必须展开，才算「全部展开」。
+    // 任务分区（conversations）的展开态与项目共用同一份 purpose 偏好，无需单独判定。
+    if (canToggleAllProjectTaskGroups && !areAllWorkspaceGroupsExpanded) return false;
+    if (canToggleAllBookmarkSection && !purposeSectionPreferences.bookmarksExpanded) return false;
+    return true;
+  })();
   const toggleAllTaskGroupsTransitionPending = showOptimisticGroupedTaskGroupToggle;
   const toggleAllTaskGroupsPresentation = resolveSidebarTaskGroupTogglePresentation({
     current: {
@@ -933,23 +943,32 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
       );
       return;
     }
-    if (purposeSectionPreferences.projectsExpanded && areAllWorkspaceGroupsExpanded) {
-      handleProjectSectionOpenChange(false);
-      collapseAllWorkspaceTabs(workspacePaths);
-      return;
+    // 「展开全部 / 收起全部」作用于侧边栏里所有可折叠分区：项目、任务、网站收藏。
+    // 较早的实现只动 projectsExpanded，导致按钮对任务与收藏分区不生效。
+    const nextExpanded = !areAllTaskGroupsExpanded;
+
+    handleProjectSectionOpenChange(nextExpanded);
+    handleConversationSectionOpenChange(nextExpanded);
+    if (canToggleAllBookmarkSection) {
+      handleBookmarkSectionOpenChange(nextExpanded);
     }
 
-    handleProjectSectionOpenChange(true);
-    expandAllWorkspaceTabs(workspacePaths);
+    if (nextExpanded) {
+      expandAllWorkspaceTabs(workspacePaths);
+    } else {
+      collapseAllWorkspaceTabs(workspacePaths);
+    }
   }, [
-    areAllWorkspaceGroupsExpanded,
+    areAllTaskGroupsExpanded,
     areAllToggleableGroupedTaskGroupsOpen,
+    canToggleAllBookmarkSection,
     canToggleAllTaskGroups,
     collapseAllWorkspaceTabs,
     expandAllWorkspaceTabs,
+    handleBookmarkSectionOpenChange,
     handleCollapsedGroupedTaskGroupIdsChange,
+    handleConversationSectionOpenChange,
     handleProjectSectionOpenChange,
-    purposeSectionPreferences.projectsExpanded,
     taskOrganizeBy,
     toggleableGroupedTaskGroupIds,
     workspacePaths,

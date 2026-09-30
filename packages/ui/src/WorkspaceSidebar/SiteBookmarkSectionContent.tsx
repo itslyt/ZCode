@@ -6,6 +6,7 @@
  */
 import { Globe } from "lucide-react";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { requestSidePaneExpanded } from "@/lib/sidePaneExpandIntent.js";
 import { useSiteBookmarkStore } from "@/store/siteBookmarkStore.js";
 
 export function SiteBookmarkSectionContent({
@@ -34,7 +35,12 @@ export function SiteBookmarkSectionContent({
             disabled={!onOpenUrl}
             title={bookmark.url}
             data-testid="site-bookmark-item"
-            onClick={() => onOpenUrl?.(bookmark.url)}
+            onClick={() => {
+              // 收藏是「去这个站点」的主动导航，默认铺满面板以拿到完整可视区域；
+              // 其余浏览器入口（地址栏、产物直开）不受影响。
+              requestSidePaneExpanded();
+              onOpenUrl?.(bookmark.url);
+            }}
             className="group/bookmark flex h-7 w-full min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-ui-base text-foreground-subtle outline-none transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-default disabled:opacity-60"
           >
             <Globe aria-hidden="true" className="size-3.5 shrink-0 opacity-70" />

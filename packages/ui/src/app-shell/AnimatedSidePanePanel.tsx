@@ -99,6 +99,10 @@ import {
 import { inferMediaPreview, type CodeViewerSource } from "@/lib/codeViewer.js";
 import type { MessageFileLinkTarget } from "@/components/ai-elements/message.js";
 import { getVisibleSidePaneTabs } from "@/lib/workspaceSidePane.js";
+import {
+  addSidePaneExpandedIntentListener,
+  consumeSidePaneExpandedIntent,
+} from "@/lib/sidePaneExpandIntent.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import {
   BugIcon,
@@ -476,6 +480,21 @@ export function AnimatedSidePanePanel({
     if (!isVisible) {
       setIsSidePaneExpanded(false);
     }
+  }, [isVisible]);
+  // 主动导航意图（如侧边栏网站收藏）：事件先于面板可见性变更到达，
+  // 所以既要监听事件（面板已可见时），也要在变为可见时补消费一次（面板刚被拉起时）。
+  // 消费即清空，避免同一意图重复生效；手动恢复宽度后不会被旧意图重新铺满。
+  useEffect(() => {
+    const consume = () => {
+      if (consumeSidePaneExpandedIntent()) {
+        setIsSidePaneExpanded(true);
+      }
+    };
+    const unsubscribe = addSidePaneExpandedIntentListener(consume);
+    if (isVisible) {
+      consume();
+    }
+    return unsubscribe;
   }, [isVisible]);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
   const tabsScrollViewportRef = useRef<HTMLDivElement | null>(null);

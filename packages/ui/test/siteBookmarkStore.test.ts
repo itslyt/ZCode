@@ -66,3 +66,25 @@ test("删除与移动经 store 写入", () => {
     ["b"],
   );
 });
+
+test("编辑经 store 写入，失败时返回错误码且列表不变", () => {
+  reset([
+    { id: "a", name: "A", url: "https://a.example.com/", createdAt: 1 },
+    { id: "b", name: "B", url: "https://b.example.com/", createdAt: 2 },
+  ]);
+
+  const conflict = useSiteBookmarkStore
+    .getState()
+    .updateBookmark("a", { name: "A", url: "https://b.example.com/" });
+  assert.deepEqual(conflict, { ok: false, error: "duplicateUrl" });
+  assert.equal(useSiteBookmarkStore.getState().bookmarks[0]?.url, "https://a.example.com/");
+
+  const ok = useSiteBookmarkStore
+    .getState()
+    .updateBookmark("a", { name: "A2", url: "https://a2.example.com/" });
+  assert.deepEqual(ok, { ok: true });
+  const updated = useSiteBookmarkStore.getState().bookmarks[0];
+  assert.equal(updated?.name, "A2");
+  assert.equal(updated?.url, "https://a2.example.com/");
+  assert.equal(updated?.id, "a");
+});

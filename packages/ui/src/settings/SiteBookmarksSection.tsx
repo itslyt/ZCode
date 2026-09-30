@@ -5,7 +5,7 @@
  * 不走 settings 服务：跨窗口/跨设备无需同步，避免为展示偏好引入协议字段。
  */
 import { useState } from "react";
-import { ArrowDown, ArrowUp, Globe, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, Globe, Pencil, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
 import { Input } from "@/components/ui/input.js";
 import { toast } from "@/components/ui/toast.js";
@@ -14,6 +14,7 @@ import {
   MAX_SITE_BOOKMARKS,
   SITE_BOOKMARK_NAME_MAX_LENGTH,
   normalizeBookmarkUrl,
+  type SiteBookmark,
 } from "@/lib/siteBookmarks.js";
 import { SettingsGroupCard } from "@/settings/SettingsPageParts.js";
 import { useSiteBookmarkStore } from "@/store/siteBookmarkStore.js";
@@ -24,10 +25,13 @@ export function SiteBookmarksSection() {
   const addBookmark = useSiteBookmarkStore((state) => state.addBookmark);
   const removeBookmark = useSiteBookmarkStore((state) => state.removeBookmark);
   const moveBookmark = useSiteBookmarkStore((state) => state.moveBookmark);
+  const updateBookmark = useSiteBookmarkStore((state) => state.updateBookmark);
 
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
+  /** 正在行内编辑的条目 id；同时只允许编辑一行，避免多个半成品表单并存。 */
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const atLimit = bookmarks.length >= MAX_SITE_BOOKMARKS;
 
@@ -62,6 +66,22 @@ export function SiteBookmarksSection() {
     toast(
       intl.formatMessage({ id: outcome.updated ? "bookmarks.added.updated" : "bookmarks.added" }),
     );
+  };
+
+  const handleSaveEdit = (id: string, next: { name: string; url: string }) => {
+    const outcome = updateBookmark(id, next);
+    if (!outcome.ok) {
+      return intl.formatMessage({
+        id:
+          outcome.error === "duplicateUrl"
+            ? "bookmarks.error.duplicateUrl"
+            : outcome.error === "notFound"
+              ? "bookmarks.error.notFound"
+              : "bookmarks.error.invalidUrl",
+      });
+    }
+    setEditingId(null);
+    return null;
   };
 
   return (
@@ -113,50 +133,147 @@ export function SiteBookmarksSection() {
               key={bookmark.id}
               data-testid="site-bookmark-row"
               // 首行不加分隔线：卡片自身已有边框，重复描边会形成双线。
-              className={`flex items-center gap-3 px-4 py-3 ${index === 0 ? "" : "border-t border-border"}`}
+              className={`px-4 py-3 ${index === 0 ? "" : "border-t border-border"}`}
             >
-              <Globe aria-hidden="true" className="size-4 shrink-0 text-foreground-subtle" />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-ui-base font-medium text-foreground">
-                  {bookmark.name}
+              {editingId === bookmark.id ? (
+                <BookmarkEditRow
+                  bookmark={bookmark}
+                  onCancel={() => setEditingId(null)}
+                  onSave={handleSaveEdit}
+                />
+              ) : (
+                <div className="flex items-center gap-3">
+                  <Globe aria-hidden="true" className="size-4 shrink-0 text-foreground-subtle" />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-ui-base font-medium text-foreground">
+                      {bookmark.name}
+                    </div>
+                    <div className="truncate text-ui-base text-foreground-subtle">
+                      {bookmark.url}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={intl.formatMessage({ id: "bookmarks.edit" })}
+                      data-testid="site-bookmark-edit"
+                      onClick={() => {
+                        setError(null);
+                        setEditingId(bookmark.id);
+                      }}
+                    >
+                      <Pencil className="size-3.5" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={intl.formatMessage({ id: "bookmarks.moveUp" })}
+                      disabled={index === 0}
+                      onClick={() => moveBookmark(bookmark.id, -1)}
+                    >
+                      <ArrowUp className="size-3.5" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={intl.formatMessage({ id: "bookmarks.moveDown" })}
+                      disabled={index === bookmarks.length - 1}
+                      onClick={() => moveBookmark(bookmark.id, 1)}
+                    >
+                      <ArrowDown className="size-3.5" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={intl.formatMessage({ id: "bookmarks.remove" })}
+                      onClick={() => removeBookmark(bookmark.id)}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </div>
                 </div>
-                <div className="truncate text-ui-base text-foreground-subtle">{bookmark.url}</div>
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={intl.formatMessage({ id: "bookmarks.moveUp" })}
-                  disabled={index === 0}
-                  onClick={() => moveBookmark(bookmark.id, -1)}
-                >
-                  <ArrowUp className="size-3.5" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={intl.formatMessage({ id: "bookmarks.moveDown" })}
-                  disabled={index === bookmarks.length - 1}
-                  onClick={() => moveBookmark(bookmark.id, 1)}
-                >
-                  <ArrowDown className="size-3.5" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={intl.formatMessage({ id: "bookmarks.remove" })}
-                  onClick={() => removeBookmark(bookmark.id)}
-                >
-                  <Trash2 className="size-3.5" />
-                </Button>
-              </div>
+              )}
             </div>
           ))}
         </SettingsGroupCard>
       )}
+    </div>
+  );
+}
+
+/**
+ * 单条收藏的行内编辑表单。
+ *
+ * 编辑态下才挂载，输入框初值直接取当前条目（组件以 bookmark.id 作 key，
+ * 所以换行编辑时不会串值）。保存失败由调用方返回错误文案，保留输入不丢用户改动。
+ */
+function BookmarkEditRow({
+  bookmark,
+  onCancel,
+  onSave,
+}: {
+  bookmark: SiteBookmark;
+  onCancel: () => void;
+  onSave: (id: string, next: { name: string; url: string }) => string | null;
+}) {
+  const { intl } = useZCodeIntl();
+  const [draftName, setDraftName] = useState(bookmark.name);
+  const [draftUrl, setDraftUrl] = useState(bookmark.url);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = () => {
+    const message = onSave(bookmark.id, { name: draftName, url: draftUrl });
+    setError(message);
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Input
+          value={draftName}
+          maxLength={SITE_BOOKMARK_NAME_MAX_LENGTH}
+          aria-label={intl.formatMessage({ id: "bookmarks.namePlaceholder" })}
+          onChange={(event) => setDraftName(event.target.value)}
+          className="sm:w-56"
+        />
+        <Input
+          value={draftUrl}
+          spellCheck={false}
+          aria-label={intl.formatMessage({ id: "bookmarks.urlPlaceholder" })}
+          onChange={(event) => setDraftUrl(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") save();
+            if (event.key === "Escape") onCancel();
+          }}
+          className="flex-1"
+        />
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            type="button"
+            size="icon-sm"
+            aria-label={intl.formatMessage({ id: "bookmarks.saveEdit" })}
+            data-testid="site-bookmark-save"
+            onClick={save}
+          >
+            <Check className="size-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={intl.formatMessage({ id: "bookmarks.cancelEdit" })}
+            onClick={onCancel}
+          >
+            <X className="size-3.5" />
+          </Button>
+        </div>
+      </div>
+      {error ? <p className="text-ui-base text-destructive">{error}</p> : null}
     </div>
   );
 }

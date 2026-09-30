@@ -8,6 +8,7 @@ import {
   normalizeSiteBookmarks,
   readSiteBookmarks,
   removeSiteBookmark,
+  updateSiteBookmark,
   upsertSiteBookmark,
   type SiteBookmark,
 } from "../src/lib/siteBookmarks.js";
@@ -181,4 +182,53 @@ test("存储往返后保持顺序", () => {
     readSiteBookmarks(storage).map((item) => item.id),
     ["b", "a"],
   );
+});
+
+test("按 id 编辑名称与地址，id 与创建时间保持稳定", () => {
+  const list = [bookmark({ id: "a", url: "https://a.example.com/", name: "旧名", createdAt: 42 })];
+  const result = updateSiteBookmark(list, "a", { name: "新名", url: "https://a2.example.com/" });
+
+  assert.equal(result.error, undefined);
+  const updated = result.bookmarks[0];
+  assert.ok(updated);
+  assert.equal(updated.name, "新名");
+  assert.equal(updated.url, "https://a2.example.com/");
+  // id / createdAt 必须稳定：侧边栏 key 与排序都依赖它们。
+  assert.equal(updated.id, "a");
+  assert.equal(updated.createdAt, 42);
+});
+
+test("编辑时改用其他条目已占用的 URL 会报错，不改动任何条目", () => {
+  const list = [
+    bookmark({ id: "a", url: "https://a.example.com/" }),
+    bookmark({ id: "b", url: "https://b.example.com/" }),
+  ];
+  const result = updateSiteBookmark(list, "a", { name: "A", url: "https://b.example.com/" });
+
+  assert.equal(result.error, "duplicateUrl");
+  assert.equal(result.bookmarks[0]?.url, "https://a.example.com/");
+  assert.equal(result.bookmarks[1]?.url, "https://b.example.com/");
+});
+
+test("编辑不存在的条目与非法输入分别报错", () => {
+  const list = [bookmark({ id: "a", url: "https://a.example.com/" })];
+  assert.equal(
+    updateSiteBookmark(list, "missing", { name: "x", url: "https://c.example.com/" }).error,
+    "notFound",
+  );
+  assert.equal(updateSiteBookmark(list, "a", { name: "x", url: "ftp://nope" }).error, "invalid");
+  assert.equal(
+    updateSiteBookmark(list, "a", { name: "  ", url: "https://c.example.com/" }).error,
+    "invalid",
+  );
+});
+
+test("编辑保持原 URL 不变时不判为冲突", () => {
+  const list = [
+    bookmark({ id: "a", url: "https://a.example.com/" }),
+    bookmark({ id: "b", url: "https://b.example.com/" }),
+  ];
+  const result = updateSiteBookmark(list, "a", { name: "只改名", url: "https://a.example.com/" });
+  assert.equal(result.error, undefined);
+  assert.equal(result.bookmarks[0]?.name, "只改名");
 });

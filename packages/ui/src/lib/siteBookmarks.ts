@@ -138,6 +138,52 @@ export function upsertSiteBookmark(
   };
 }
 
+export type UpdateSiteBookmarkError = "invalid" | "notFound" | "duplicateUrl";
+
+export interface UpdateSiteBookmarkResult {
+  bookmarks: SiteBookmark[];
+  error?: UpdateSiteBookmarkError;
+}
+
+/**
+ * 按 id 编辑条目的名称与地址。
+ *
+ * 与 upsert 的区别：这里是「改指定条目」，不改 id 与 createdAt（排序与 key 都依赖 id 稳定）。
+ * 改 URL 撞上另一个条目时**报错而不合并** —— 静默吞掉另一个条目会让用户丢数据，
+ * 且从「编辑 A」跳到「删掉 B」在界面上无法解释。
+ */
+export function updateSiteBookmark(
+  bookmarks: readonly SiteBookmark[],
+  id: string,
+  input: { name: string; url: string },
+): UpdateSiteBookmarkResult {
+  const url = normalizeBookmarkUrl(input.url);
+  const name = normalizeBookmarkName(input.name);
+  if (!url || !name) {
+    return { bookmarks: [...bookmarks], error: "invalid" };
+  }
+
+  const index = bookmarks.findIndex((bookmark) => bookmark.id === id);
+  if (index === -1) {
+    return { bookmarks: [...bookmarks], error: "notFound" };
+  }
+
+  const collidesWithOther = bookmarks.some(
+    (bookmark) => bookmark.id !== id && bookmark.url === url,
+  );
+  if (collidesWithOther) {
+    return { bookmarks: [...bookmarks], error: "duplicateUrl" };
+  }
+
+  const next = [...bookmarks];
+  const existing = next[index];
+  if (!existing) {
+    return { bookmarks: [...bookmarks], error: "notFound" };
+  }
+  next[index] = { ...existing, name, url };
+  return { bookmarks: next };
+}
+
 export function removeSiteBookmark(bookmarks: readonly SiteBookmark[], id: string): SiteBookmark[] {
   return bookmarks.filter((bookmark) => bookmark.id !== id);
 }

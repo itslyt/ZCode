@@ -10,8 +10,10 @@ import {
   persistSiteBookmarks,
   readSiteBookmarks,
   removeSiteBookmark,
+  updateSiteBookmark,
   upsertSiteBookmark,
   type SiteBookmark,
+  type UpdateSiteBookmarkError,
   type UpsertSiteBookmarkError,
 } from "@/lib/siteBookmarks.js";
 
@@ -20,11 +22,17 @@ export type AddSiteBookmarkOutcome =
   | { ok: true; updated: boolean }
   | { ok: false; error: UpsertSiteBookmarkError };
 
+/** 编辑结果：仅成功/失败，无 upsert 的「命中同名」语义。 */
+export type UpdateSiteBookmarkOutcome =
+  | { ok: true }
+  | { ok: false; error: UpdateSiteBookmarkError };
+
 export interface SiteBookmarkStore {
   bookmarks: SiteBookmark[];
   addBookmark: (input: { name: string; url: string }) => AddSiteBookmarkOutcome;
   removeBookmark: (id: string) => void;
   moveBookmark: (id: string, delta: -1 | 1) => void;
+  updateBookmark: (id: string, input: { name: string; url: string }) => UpdateSiteBookmarkOutcome;
 }
 
 function commit(
@@ -54,5 +62,14 @@ export const useSiteBookmarkStore = create<SiteBookmarkStore>((set, get) => ({
 
   moveBookmark: (id, delta) => {
     commit(moveSiteBookmark(get().bookmarks, id, delta), set);
+  },
+
+  updateBookmark: (id, input) => {
+    const result = updateSiteBookmark(get().bookmarks, id, input);
+    if (result.error) {
+      return { ok: false, error: result.error };
+    }
+    commit(result.bookmarks, set);
+    return { ok: true };
   },
 }));
