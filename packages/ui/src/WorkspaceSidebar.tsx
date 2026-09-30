@@ -50,6 +50,7 @@ import { BUILTIN_MODEL_PROVIDER_IDS } from "@zcode/shared";
 import {
   TID_CONVERSATION_NEW_TASK,
   TID_CONVERSATION_SECTION,
+  TID_BOOKMARK_SECTION,
   TID_PROJECT_ADD,
   TID_PROJECT_SECTION,
   TID_SIDEBAR,
@@ -126,6 +127,8 @@ import {
   type SidebarTaskGroupTogglePresentation,
 } from "@/WorkspaceSidebar/taskGroupTogglePresentation.js";
 import { WorkspacePurposeSection } from "@/WorkspaceSidebar/WorkspacePurposeSection.js";
+import { SiteBookmarkSectionContent } from "@/WorkspaceSidebar/SiteBookmarkSectionContent.js";
+import { useSiteBookmarkStore } from "@/store/siteBookmarkStore.js";
 import { cn } from "@/components/lib/utils.js";
 import { useCodingPlanUpgradeDialog } from "@/settings/CodingPlanUpgradeDialogProvider.js";
 import {
@@ -397,6 +400,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   const [purposeSectionPreferences, setPurposeSectionPreferences] = useState(
     readSidebarPurposeSectionPreferences,
   );
+  const bookmarkCount = useSiteBookmarkStore((state) => state.bookmarks.length);
   const [workspaceTaskOrganizeBy, setWorkspaceTaskOrganizeBy] = useState<
     Extract<TaskOrganizeBy, "project" | "chronological">
   >(() => {
@@ -434,6 +438,16 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
         return current;
       }
       const next = { ...current, conversationsExpanded };
+      persistSidebarPurposeSectionPreferences(next);
+      return next;
+    });
+  }, []);
+  const handleBookmarkSectionOpenChange = useCallback((bookmarksExpanded: boolean) => {
+    setPurposeSectionPreferences((current) => {
+      if (current.bookmarksExpanded === bookmarksExpanded) {
+        return current;
+      }
+      const next = { ...current, bookmarksExpanded };
       persistSidebarPurposeSectionPreferences(next);
       return next;
     });
@@ -1562,6 +1576,31 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
                                 </DndContext>
                               )}
                             </WorkspacePurposeSection>
+                          ) : sectionId === "bookmarks" ? (
+                            // 无收藏时不渲染，避免侧边栏出现空白分组占位。
+                            bookmarkCount > 0 ? (
+                              <WorkspacePurposeSection
+                                key={sectionId}
+                                sortableId={sectionId}
+                                dragHandleLabel={intl.formatMessage(
+                                  { id: "workspaceSidebar.reorderSection" },
+                                  {
+                                    section: intl.formatMessage({
+                                      id: "workspaceSidebar.bookmarksSection",
+                                    }),
+                                  },
+                                )}
+                                title={intl.formatMessage({
+                                  id: "workspaceSidebar.bookmarksSection",
+                                })}
+                                open={purposeSectionPreferences.bookmarksExpanded}
+                                onOpenChange={handleBookmarkSectionOpenChange}
+                                testId={TID_BOOKMARK_SECTION}
+                                action={null}
+                              >
+                                <SiteBookmarkSectionContent onOpenUrl={onOpenBrowserUrl} />
+                              </WorkspacePurposeSection>
+                            ) : null
                           ) : (
                             <WorkspacePurposeSection
                               key={sectionId}

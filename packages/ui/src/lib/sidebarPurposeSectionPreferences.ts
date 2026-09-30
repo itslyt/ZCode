@@ -6,10 +6,11 @@ interface StorageLike {
 interface SidebarPurposeSectionPreferences {
   projectsExpanded: boolean;
   conversationsExpanded: boolean;
+  bookmarksExpanded: boolean;
   sectionOrder: SidebarPurposeSectionId[];
 }
 
-const SIDEBAR_PURPOSE_SECTION_IDS = ["projects", "conversations"] as const;
+const SIDEBAR_PURPOSE_SECTION_IDS = ["projects", "conversations", "bookmarks"] as const;
 
 type SidebarPurposeSectionId = (typeof SIDEBAR_PURPOSE_SECTION_IDS)[number];
 
@@ -18,6 +19,7 @@ const SIDEBAR_PURPOSE_SECTION_PREFERENCES_STORAGE_KEY = "zcode-sidebar-purpose-s
 const DEFAULT_SIDEBAR_PURPOSE_SECTION_PREFERENCES: SidebarPurposeSectionPreferences = {
   projectsExpanded: true,
   conversationsExpanded: true,
+  bookmarksExpanded: true,
   sectionOrder: [...SIDEBAR_PURPOSE_SECTION_IDS],
 };
 
@@ -40,20 +42,31 @@ function getDefaultPreferences(): SidebarPurposeSectionPreferences {
   };
 }
 
+/**
+ * 归一化分区顺序。
+ *
+ * 兼容旧数据：新增分区后旧值长度更短，直接判非法会让用户已排好的顺序被整体重置。
+ * 这里保留已识别的前缀顺序，再把缺失的分区按默认顺序追加到末尾。
+ */
 function normalizeSectionOrder(value: unknown): SidebarPurposeSectionId[] {
-  if (!Array.isArray(value) || value.length !== SIDEBAR_PURPOSE_SECTION_IDS.length) {
+  if (!Array.isArray(value)) {
     return [...SIDEBAR_PURPOSE_SECTION_IDS];
   }
 
-  const sectionIds = new Set(value);
-  if (
-    sectionIds.size !== SIDEBAR_PURPOSE_SECTION_IDS.length ||
-    SIDEBAR_PURPOSE_SECTION_IDS.some((sectionId) => !sectionIds.has(sectionId))
-  ) {
-    return [...SIDEBAR_PURPOSE_SECTION_IDS];
+  const known = new Set<string>(SIDEBAR_PURPOSE_SECTION_IDS);
+  const seen = new Set<SidebarPurposeSectionId>();
+  const ordered: SidebarPurposeSectionId[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "string" || !known.has(entry)) continue;
+    const sectionId = entry as SidebarPurposeSectionId;
+    if (seen.has(sectionId)) continue;
+    seen.add(sectionId);
+    ordered.push(sectionId);
   }
-
-  return value as SidebarPurposeSectionId[];
+  for (const sectionId of SIDEBAR_PURPOSE_SECTION_IDS) {
+    if (!seen.has(sectionId)) ordered.push(sectionId);
+  }
+  return ordered;
 }
 
 export function reorderSidebarPurposeSections(
@@ -102,6 +115,10 @@ export function readSidebarPurposeSectionPreferences(
         typeof value.conversationsExpanded === "boolean"
           ? value.conversationsExpanded
           : DEFAULT_SIDEBAR_PURPOSE_SECTION_PREFERENCES.conversationsExpanded,
+      bookmarksExpanded:
+        typeof value.bookmarksExpanded === "boolean"
+          ? value.bookmarksExpanded
+          : DEFAULT_SIDEBAR_PURPOSE_SECTION_PREFERENCES.bookmarksExpanded,
       sectionOrder: normalizeSectionOrder(value.sectionOrder),
     };
   } catch {
@@ -119,6 +136,7 @@ export function persistSidebarPurposeSectionPreferences(
       JSON.stringify({
         projectsExpanded: preferences.projectsExpanded,
         conversationsExpanded: preferences.conversationsExpanded,
+        bookmarksExpanded: preferences.bookmarksExpanded,
         sectionOrder: normalizeSectionOrder(preferences.sectionOrder),
       }),
     );

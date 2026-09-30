@@ -11,6 +11,7 @@ import {
   Terminal,
   AlarmClock,
   Anchor,
+  Bookmark,
   Brain,
   Blocks,
   Globe2,
@@ -126,6 +127,12 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     id: "browser",
     icon: Globe2,
     titleId: "settings.browser.title",
+    groupId: "basics",
+  },
+  {
+    id: "siteBookmarks",
+    icon: Bookmark,
+    titleId: "settings.siteBookmarks.title",
     groupId: "basics",
   },
   // 电脑控制紧跟「浏览器」：两者都是给 Agent 用的本机操控入口，
